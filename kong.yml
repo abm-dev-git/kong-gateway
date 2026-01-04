@@ -677,6 +677,44 @@ plugins:
       content_type: "application/json"
 
 # ===========================================
+# Rate Limiting Plugins
+# ===========================================
+# Rate limits are applied per org_id (from x-org-id header)
+# Two tiers:
+#   - Enrichment routes: 20 requests/minute (expensive operations)
+#   - Standard routes: 100 requests/minute
+#
+# Rate limiting is applied via Admin API after startup using tags:
+#   - Routes with tag 'rate-limit-enrichment' get 20/min
+#   - Routes with tag 'rate-limit-standard' get 100/min
+#
+# Run: ./scripts/setup-rate-limiting.sh
+#
+# Note: Global rate-limit plugin below is a fallback for untagged routes
+
+  # Global fallback rate limit (applies to all routes)
+  # More specific rate limits are added via Admin API to tagged routes
+  - name: rate-limiting
+    tags:
+      - rate-limiting
+      - global
+    config:
+      # Default global limit
+      minute: 1000
+      # Use Redis for distributed rate limiting
+      policy: redis
+      redis_host: redis
+      redis_port: 6379
+      redis_timeout: 2000
+      # Limit by x-org-id header (set by request-transformer in Issue #8)
+      limit_by: header
+      header_name: x-org-id
+      # Return rate limit headers
+      hide_client_headers: false
+      # Count all response statuses
+      fault_tolerant: true
+
+# ===========================================
 # Consumers
 # ===========================================
 consumers:
