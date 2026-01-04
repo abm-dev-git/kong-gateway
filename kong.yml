@@ -642,6 +642,40 @@ plugins:
       # If JWT validation fails, fall through to key-auth plugin
       anonymous: anonymous
 
+  # Key Authentication Plugin (for authenticated routes)
+  # Uses anonymous consumer fallback for Either/Or auth pattern
+  - name: key-auth
+    tags:
+      - authentication
+      - api-key
+    config:
+      # Header and query param names to check for API key
+      key_names:
+        - x-api-key
+        - apikey
+      # Check in both header and query
+      key_in_header: true
+      key_in_query: true
+      key_in_body: false
+      # Don't hide the credential from upstream
+      hide_credentials: false
+      # Anonymous consumer fallback (enables Either/Or auth)
+      # If API key validation fails, fall through to anonymous consumer
+      anonymous: anonymous
+
+  # Request Termination Plugin (for anonymous consumer)
+  # Rejects requests that fall through to anonymous consumer
+  # This ensures unauthenticated requests get a proper 401 response
+  - name: request-termination
+    consumer: anonymous
+    tags:
+      - authentication
+      - termination
+    config:
+      status_code: 401
+      message: "Authentication required. Provide either a JWT Bearer token in the Authorization header or an API key in the x-api-key header."
+      content_type: "application/json"
+
 # ===========================================
 # Consumers
 # ===========================================
