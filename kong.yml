@@ -2,10 +2,14 @@ _format_version: "3.0"
 _transform: true
 
 # Kong Gateway Declarative Configuration
-# ABM.dev API Gateway
+# ABM.dev API Gateway - 27 Routes
 #
 # This file defines services, routes, plugins, and consumers.
-# Full route configuration will be added in Issue #4.
+# Source: /data/code/turquoise-koala/config/routes.oas.json
+#
+# Related Issues:
+# - Issue #4: Create kong.yml with all 27 routes
+# - Epic #1: Kong Gateway Infrastructure
 
 # ===========================================
 # Services (Upstream APIs)
@@ -13,26 +17,20 @@ _transform: true
 services:
   # Main ABM.dev Backend API
   - name: abmdev-backend
-    url: ${ABMDEV_API_URL:-http://host.docker.internal:8000}
+    url: http://abm-dev-api:8080
     connect_timeout: 60000
     write_timeout: 60000
     read_timeout: 120000
     retries: 2
+    tags:
+      - backend
+      - abmdev
 
 # ===========================================
-# Routes (Public - No Auth)
+# Routes - Public (No Authentication)
 # ===========================================
 routes:
-  # Health check - public
-  - name: health-check
-    service: abmdev-backend
-    paths:
-      - /health
-    methods:
-      - GET
-    strip_path: false
-
-  # Root welcome - public
+  # Root welcome endpoint
   - name: root
     service: abmdev-backend
     paths:
@@ -40,12 +38,578 @@ routes:
     methods:
       - GET
     strip_path: false
+    tags:
+      - public
+
+  # Health check endpoint
+  - name: health-check
+    service: abmdev-backend
+    paths:
+      - /health
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - public
+      - health
+
+  # Clerk webhook (no auth, signature verified by backend)
+  - name: webhooks-clerk
+    service: abmdev-backend
+    paths:
+      - /webhooks/clerk
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - public
+      - webhook
+
+# ===========================================
+# Routes - Enrichment (20 req/min rate limit)
+# ===========================================
+
+  # POST /v1/enrichment/entities -> /api/v1/enrichment/entities
+  - name: enrichment-entities
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/entities$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/entities
+
+  # GET/POST /v1/enrichment/jobs -> /api/v1/enrichment/jobs
+  - name: enrichment-jobs
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs
+
+  # GET/DELETE /v1/enrichment/jobs/{jobId} -> /api/v1/enrichment/jobs/{jobId}
+  - name: enrichment-job-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)$
+    methods:
+      - GET
+      - DELETE
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)
+
+  # GET /v1/enrichment/jobs/{jobId}/stream -> /api/v1/enrichment/jobs/{jobId}/stream
+  - name: enrichment-job-stream
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)/stream$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - streaming
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)/stream
+
+  # POST /v1/enrichment/preflight -> /api/v1/enrichment/preflight
+  - name: enrichment-preflight
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/preflight$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/preflight
+
+# ===========================================
+# Routes - Configuration (100 req/min rate limit)
+# ===========================================
+
+  # GET/POST /v1/enrichment/configurations -> /api/v1/enrichment/configurations
+  - name: enrichment-configurations
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/configurations$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/configurations
+
+  # GET/PUT/DELETE /v1/enrichment/configurations/{configId}
+  - name: enrichment-configuration-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/configurations/(?<configId>[^/]+)$
+    methods:
+      - GET
+      - PUT
+      - DELETE
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/configurations/$(uri_captures.configId)
+
+  # GET/POST /v1/enrichment/field-mappings -> /api/v1/enrichment/field-mappings
+  - name: enrichment-field-mappings
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/field-mappings$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/field-mappings
+
+  # GET/PUT/DELETE /v1/enrichment/field-mappings/{mappingId}
+  - name: enrichment-field-mapping-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/field-mappings/(?<mappingId>[^/]+)$
+    methods:
+      - GET
+      - PUT
+      - DELETE
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/field-mappings/$(uri_captures.mappingId)
+
+# ===========================================
+# Routes - LinkedIn Connection (100 req/min)
+# ===========================================
+
+  # GET /v1/linkedin-connection/status
+  - name: linkedin-connection-status
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/status$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/status
+
+  # POST /v1/linkedin-connection/initialize
+  - name: linkedin-connection-initialize
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/initialize$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/initialize
+
+  # POST /v1/linkedin-connection/verify
+  - name: linkedin-connection-verify
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/verify$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/verify
+
+  # DELETE /v1/linkedin-connection
+  - name: linkedin-connection-delete
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection$
+    methods:
+      - DELETE
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection
+
+  # GET /v1/linkedin-connection/profile
+  - name: linkedin-connection-profile
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/profile$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/profile
+
+# ===========================================
+# Routes - HubSpot Integration (100 req/min)
+# ===========================================
+
+  # GET/POST /v1/hubspot/contacts
+  - name: hubspot-contacts
+    service: abmdev-backend
+    paths:
+      - ~/v1/hubspot/contacts$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - hubspot
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/hubspot/contacts
+
+  # GET/PATCH /v1/hubspot/contacts/{contactId}
+  - name: hubspot-contact-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/hubspot/contacts/(?<contactId>[^/]+)$
+    methods:
+      - GET
+      - PATCH
+    strip_path: false
+    tags:
+      - hubspot
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/hubspot/contacts/$(uri_captures.contactId)
+
+  # GET/POST /v1/hubspot/companies
+  - name: hubspot-companies
+    service: abmdev-backend
+    paths:
+      - ~/v1/hubspot/companies$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - hubspot
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/hubspot/companies
+
+  # GET /v1/hubspot/properties/contacts
+  - name: hubspot-properties-contacts
+    service: abmdev-backend
+    paths:
+      - ~/v1/hubspot/properties/contacts$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - hubspot
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/hubspot/properties/contacts
+
+  # POST /v1/hubspot/sync
+  - name: hubspot-sync
+    service: abmdev-backend
+    paths:
+      - ~/v1/hubspot/sync$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - hubspot
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/hubspot/sync
+
+  # POST /v1/hubspot/dedup/check
+  - name: hubspot-dedup-check
+    service: abmdev-backend
+    paths:
+      - ~/v1/hubspot/dedup/check$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - hubspot
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/hubspot/dedup/check
+
+# ===========================================
+# Routes - API Keys (100 req/min)
+# ===========================================
+
+  # GET/POST /v1/api-keys -> /api/v1/ApiKeys
+  - name: api-keys
+    service: abmdev-backend
+    paths:
+      - ~/v1/api-keys$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - api-keys
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/ApiKeys
+
+  # DELETE /v1/api-keys/{keyId} -> /api/v1/ApiKeys/{keyId}
+  - name: api-key-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/api-keys/(?<keyId>[^/]+)$
+    methods:
+      - DELETE
+    strip_path: false
+    tags:
+      - api-keys
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/ApiKeys/$(uri_captures.keyId)
+
+# ===========================================
+# Routes - Organizations (100 req/min)
+# ===========================================
+
+  # GET /v1/organizations/current
+  - name: organizations-current
+    service: abmdev-backend
+    paths:
+      - ~/v1/organizations/current$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - organization
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/organizations/current
+
+  # GET /v1/organizations/current/usage
+  - name: organizations-usage
+    service: abmdev-backend
+    paths:
+      - ~/v1/organizations/current/usage$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - organization
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/organizations/current/usage
+
+# ===========================================
+# Routes - Status (No rate limit)
+# ===========================================
+
+  # GET /v1/status
+  - name: status
+    service: abmdev-backend
+    paths:
+      - ~/v1/status$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - status
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/status
+
+  # GET /v1/status/linkedin
+  - name: status-linkedin
+    service: abmdev-backend
+    paths:
+      - ~/v1/status/linkedin$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - status
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/status/linkedin
+
+  # GET /v1/status/hunter
+  - name: status-hunter
+    service: abmdev-backend
+    paths:
+      - ~/v1/status/hunter$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - status
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/status/hunter
+
+  # GET /v1/status/hubspot
+  - name: status-hubspot
+    service: abmdev-backend
+    paths:
+      - ~/v1/status/hubspot$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - status
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/status/hubspot
 
 # ===========================================
 # Global Plugins
 # ===========================================
 plugins:
-  # Correlation ID for request tracing
+  # Correlation ID for request tracing (all routes)
   - name: correlation-id
     config:
       header_name: x-correlation-id
@@ -53,6 +617,6 @@ plugins:
       echo_downstream: true
 
 # ===========================================
-# Consumers (to be expanded in Issue #5-6)
+# Consumers (to be configured in Issues #5-6)
 # ===========================================
 consumers: []
