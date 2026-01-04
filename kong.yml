@@ -51,11 +51,11 @@ services:
 # Routes - Public (No Authentication)
 # ===========================================
 routes:
-  # Root welcome endpoint
+  # Root welcome endpoint (exact match only)
   - name: root
     service: abmdev-public
     paths:
-      - /
+      - ~/$
     methods:
       - GET
     strip_path: false
