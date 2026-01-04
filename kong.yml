@@ -2,14 +2,22 @@ _format_version: "3.0"
 _transform: true
 
 # Kong Gateway Declarative Configuration
-# ABM.dev API Gateway - 27 Routes
+# ABM.dev API Gateway - External Customer API
 #
 # This file defines services, routes, plugins, and consumers.
-# Source: /data/code/turquoise-koala/config/routes.oas.json
 #
-# Related Issues:
-# - Issue #4: Create kong.yml with all 27 routes
-# - Epic #1: Kong Gateway Infrastructure
+# Route Summary (25 total):
+#   - Public: 3 (root, health, webhooks)
+#   - Enrichment API: 9 endpoints (core product)
+#   - CRM API: 8 endpoints (generic, platform-agnostic)
+#   - Organizations: 2 endpoints
+#   - API Keys: 2 endpoints
+#   - Status: 1 endpoint
+#
+# NOT exposed (internal only):
+#   - HubSpot-specific endpoints (use generic CRM API)
+#   - LinkedIn connection management (portal settings)
+#   - Integration status checks (linkedin, hunter, hubspot)
 
 # ===========================================
 # Services (Upstream APIs)
@@ -82,11 +90,15 @@ routes:
 # Routes - Enrichment (20 req/min rate limit)
 # ===========================================
 
-  # POST /v1/enrichment/entities -> /api/v1/enrichment/entities
-  - name: enrichment-entities
+  # POST /v1/enrichments -> /api/v1/enrichments
+  # Single entity enrichment (default):
+  #   { "entity_type": "person", "entity_data": { "email": "john@example.com" } }
+  # Bulk enrichment (requires explicit flag):
+  #   { "bulk": true, "entities": [ { "entity_type": "person", "entity_data": {...} }, ... ] }
+  - name: enrichments
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/entities$
+      - ~/v1/enrichments$
     methods:
       - POST
     strip_path: false
@@ -98,7 +110,7 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/entities
+            uri: /api/v1/enrichments
 
   # GET/POST /v1/enrichment/jobs -> /api/v1/enrichment/jobs
   - name: enrichment-jobs
@@ -257,213 +269,154 @@ routes:
             uri: /api/v1/enrichment/field-mappings/$(uri_captures.mappingId)
 
 # ===========================================
-# Routes - LinkedIn Connection (100 req/min)
+# Routes - CRM (Generic, Platform-Agnostic)
 # ===========================================
 
-  # GET /v1/linkedin-connection/status
-  - name: linkedin-connection-status
+  # GET /v1/crm/platforms -> List supported CRM platforms
+  - name: crm-platforms
     service: abmdev-backend
     paths:
-      - ~/v1/linkedin-connection/status$
+      - ~/v1/crm/platforms$
     methods:
       - GET
     strip_path: false
     tags:
-      - linkedin
+      - crm
       - authenticated
       - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/linkedin-connection/status
+            uri: /api/v1/crm/platforms
 
-  # POST /v1/linkedin-connection/initialize
-  - name: linkedin-connection-initialize
+  # GET /v1/crm/platforms/{platform}/health -> Check CRM connection health
+  - name: crm-platform-health
     service: abmdev-backend
     paths:
-      - ~/v1/linkedin-connection/initialize$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/initialize
-
-  # POST /v1/linkedin-connection/verify
-  - name: linkedin-connection-verify
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/verify$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/verify
-
-  # DELETE /v1/linkedin-connection
-  - name: linkedin-connection-delete
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection$
-    methods:
-      - DELETE
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection
-
-  # GET /v1/linkedin-connection/profile
-  - name: linkedin-connection-profile
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/profile$
+      - ~/v1/crm/platforms/(?<platform>[^/]+)/health$
     methods:
       - GET
     strip_path: false
     tags:
-      - linkedin
+      - crm
       - authenticated
       - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/linkedin-connection/profile
+            uri: /api/v1/crm/platforms/$(uri_captures.platform)/health
 
-# ===========================================
-# Routes - HubSpot Integration (100 req/min)
-# ===========================================
-
-  # GET/POST /v1/hubspot/contacts
-  - name: hubspot-contacts
+  # GET /v1/crm/platforms/{platform}/fields -> Get available CRM fields
+  - name: crm-platform-fields
     service: abmdev-backend
     paths:
-      - ~/v1/hubspot/contacts$
+      - ~/v1/crm/platforms/(?<platform>[^/]+)/fields$
     methods:
       - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/platforms/$(uri_captures.platform)/fields
+
+  # POST /v1/crm/contacts -> Create contact
+  - name: crm-contacts
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/contacts$
+    methods:
       - POST
     strip_path: false
     tags:
-      - hubspot
+      - crm
       - authenticated
       - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/hubspot/contacts
+            uri: /api/v1/crm/contacts
 
-  # GET/PATCH /v1/hubspot/contacts/{contactId}
-  - name: hubspot-contact-by-id
+  # POST /v1/crm/contacts/search -> Search contacts
+  - name: crm-contacts-search
     service: abmdev-backend
     paths:
-      - ~/v1/hubspot/contacts/(?<contactId>[^/]+)$
+      - ~/v1/crm/contacts/search$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/contacts/search
+
+  # GET/PATCH/DELETE /v1/crm/contacts/{id} -> Manage contact
+  - name: crm-contact-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/contacts/(?<contactId>[^/]+)$
     methods:
       - GET
       - PATCH
+      - DELETE
     strip_path: false
     tags:
-      - hubspot
+      - crm
       - authenticated
       - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/hubspot/contacts/$(uri_captures.contactId)
+            uri: /api/v1/crm/contacts/$(uri_captures.contactId)
 
-  # GET/POST /v1/hubspot/companies
-  - name: hubspot-companies
+  # GET /v1/crm/mappings -> Get field mappings
+  - name: crm-field-mappings
     service: abmdev-backend
     paths:
-      - ~/v1/hubspot/companies$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    tags:
-      - hubspot
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/hubspot/companies
-
-  # GET /v1/hubspot/properties/contacts
-  - name: hubspot-properties-contacts
-    service: abmdev-backend
-    paths:
-      - ~/v1/hubspot/properties/contacts$
+      - ~/v1/crm/mappings$
     methods:
       - GET
     strip_path: false
     tags:
-      - hubspot
+      - crm
       - authenticated
       - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/hubspot/properties/contacts
+            uri: /api/v1/crm/mappings
 
-  # POST /v1/hubspot/sync
-  - name: hubspot-sync
+  # GET /v1/crm/translate -> Translate field names between platforms
+  - name: crm-translate-field
     service: abmdev-backend
     paths:
-      - ~/v1/hubspot/sync$
+      - ~/v1/crm/translate$
     methods:
-      - POST
+      - GET
     strip_path: false
     tags:
-      - hubspot
+      - crm
       - authenticated
       - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/hubspot/sync
-
-  # POST /v1/hubspot/dedup/check
-  - name: hubspot-dedup-check
-    service: abmdev-backend
-    paths:
-      - ~/v1/hubspot/dedup/check$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - hubspot
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/hubspot/dedup/check
+            uri: /api/v1/crm/translate
 
 # ===========================================
 # Routes - API Keys (100 req/min)
@@ -566,57 +519,6 @@ routes:
         config:
           replace:
             uri: /api/v1/status
-
-  # GET /v1/status/linkedin
-  - name: status-linkedin
-    service: abmdev-backend
-    paths:
-      - ~/v1/status/linkedin$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - status
-      - authenticated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/status/linkedin
-
-  # GET /v1/status/hunter
-  - name: status-hunter
-    service: abmdev-backend
-    paths:
-      - ~/v1/status/hunter$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - status
-      - authenticated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/status/hunter
-
-  # GET /v1/status/hubspot
-  - name: status-hubspot
-    service: abmdev-backend
-    paths:
-      - ~/v1/status/hubspot$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - status
-      - authenticated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/status/hubspot
 
 # ===========================================
 # Global Plugins
