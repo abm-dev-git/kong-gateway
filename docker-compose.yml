@@ -1,0 +1,149 @@
+version: '3.8'
+
+# Kong Gateway Docker Compose Configuration
+# Local development setup with PostgreSQL, Redis, and Kong OSS 3.5
+#
+# Ports (avoid conflicts with abm.dev-platform):
+#   - Kong Proxy: 8080 (abm.dev-platform uses 8000)
+#   - Kong Admin: 8081
+#   - PostgreSQL: 5434 (abm.dev-platform uses 5433)
+#   - Redis: 6380
+
+services:
+  # ===========================================
+  # PostgreSQL Database for Kong
+  # ===========================================
+  kong-db:
+    image: postgres:15-alpine
+    container_name: kong-db
+    environment:
+      POSTGRES_USER: ${KONG_PG_USER:-kong}
+      POSTGRES_PASSWORD: ${KONG_PG_PASSWORD:-kongpassword}
+      POSTGRES_DB: ${KONG_PG_DATABASE:-kong}
+    volumes:
+      - kong-db-data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KONG_PG_USER:-kong}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kong-net
+    restart: unless-stopped
+
+  # ===========================================
+  # Kong Database Migrations
+  # ===========================================
+  kong-migrations:
+    image: kong:3.5
+    container_name: kong-migrations
+    command: kong migrations bootstrap
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: ${KONG_PG_USER:-kong}
+      KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-kongpassword}
+      KONG_PG_DATABASE: ${KONG_PG_DATABASE:-kong}
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    networks:
+      - kong-net
+    restart: on-failure
+
+  # ===========================================
+  # Kong Gateway
+  # ===========================================
+  kong:
+    image: kong:3.5
+    container_name: kong
+    environment:
+      # Database configuration
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: ${KONG_PG_USER:-kong}
+      KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-kongpassword}
+      KONG_PG_DATABASE: ${KONG_PG_DATABASE:-kong}
+
+      # Proxy configuration
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+
+      # Logging
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+
+      # Declarative config (loaded after DB mode)
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+
+      # Plugins
+      KONG_PLUGINS: bundled
+
+      # SSL (for development)
+      KONG_SSL_CERT: /etc/kong/ssl/kong.crt
+      KONG_SSL_CERT_KEY: /etc/kong/ssl/kong.key
+    volumes:
+      - ./kong.yml:/etc/kong/kong.yml:ro
+      - ./ssl:/etc/kong/ssl:ro
+    ports:
+      - "${KONG_PROXY_PORT:-8080}:8000"
+      - "${KONG_ADMIN_PORT:-8081}:8001"
+      - "${KONG_PROXY_SSL_PORT:-8443}:8443"
+    depends_on:
+      kong-db:
+        condition: service_healthy
+      kong-migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - kong-net
+      - abm-dev-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Redis for Rate Limiting
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: kong-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kong-net
+    restart: unless-stopped
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  kong-net:
+    driver: bridge
+    name: kong-net
+  abm-dev-network:
+    external: true
+    name: abm-dev-network
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  kong-db-data:
+    name: kong-db-data
+  redis-data:
+    name: kong-redis-data
