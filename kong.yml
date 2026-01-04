@@ -633,31 +633,67 @@ plugins:
       generator: uuid#counter
       echo_downstream: true
 
-  # Post-function plugin to extract org_id from JWT claims
-  # Sets x-org-id header for rate limiting and backend authorization
-  # Note: This runs after JWT plugin validates the token
+  # Post-function plugin to set auth headers for backend gateway-trusted mode
+  # Sets x-kong-* headers and x-org-id for backend authentication
+  # Note: This runs after JWT/key-auth plugins validate the request
+  # Related: kong-gateway#15, abm.dev-platform#231
   - name: post-function
     tags:
       - transformer
       - org-id
+      - gateway-auth
     config:
       access:
         - |
-          -- Extract org_id from JWT claims and set as header
+          -- Set authentication headers for backend gateway-trusted mode
+          -- Backend can trust these headers instead of re-validating
+
+          -- Extract JWT claims and set headers
           local jwt_claims = kong.ctx.shared.authenticated_jwt_claims
-          if jwt_claims and jwt_claims.org_id then
-            kong.service.request.set_header("x-org-id", jwt_claims.org_id)
-            kong.log.debug("Set x-org-id header from JWT: ", jwt_claims.org_id)
-          else
-            -- Try to get org_id from API key consumer custom_id
-            local consumer = kong.client.get_consumer()
-            if consumer and consumer.custom_id then
-              -- Custom ID format: org_<id> for API key consumers
-              local org_id = consumer.custom_id
-              if org_id:sub(1, 4) == "org_" then
-                kong.service.request.set_header("x-org-id", org_id)
-                kong.log.debug("Set x-org-id header from consumer: ", org_id)
-              end
+          if jwt_claims then
+            -- Set user ID from sub claim
+            if jwt_claims.sub then
+              kong.service.request.set_header("x-kong-jwt-claim-sub", jwt_claims.sub)
+              kong.log.debug("Set x-kong-jwt-claim-sub: ", jwt_claims.sub)
+            end
+
+            -- Set org ID from o.id claim (Clerk format) or org_id
+            if jwt_claims.o and jwt_claims.o.id then
+              kong.service.request.set_header("x-kong-jwt-claim-org-id", jwt_claims.o.id)
+              kong.service.request.set_header("x-org-id", jwt_claims.o.id)
+              kong.log.debug("Set x-org-id from JWT o.id: ", jwt_claims.o.id)
+            elseif jwt_claims.org_id then
+              kong.service.request.set_header("x-kong-jwt-claim-org-id", jwt_claims.org_id)
+              kong.service.request.set_header("x-org-id", jwt_claims.org_id)
+              kong.log.debug("Set x-org-id from JWT org_id: ", jwt_claims.org_id)
+            end
+
+            -- Set email if present
+            if jwt_claims.email then
+              kong.service.request.set_header("x-kong-jwt-claim-email", jwt_claims.email)
+              kong.log.debug("Set x-kong-jwt-claim-email: ", jwt_claims.email)
+            end
+          end
+
+          -- Set consumer headers for all authenticated requests
+          local consumer = kong.client.get_consumer()
+          if consumer then
+            -- Set consumer ID
+            if consumer.id then
+              kong.service.request.set_header("x-kong-consumer-id", consumer.id)
+              kong.log.debug("Set x-kong-consumer-id: ", consumer.id)
+            end
+
+            -- Set consumer username
+            if consumer.username then
+              kong.service.request.set_header("x-kong-consumer-username", consumer.username)
+              kong.log.debug("Set x-kong-consumer-username: ", consumer.username)
+            end
+
+            -- Fallback: set x-org-id from consumer custom_id if not already set
+            if consumer.custom_id and not kong.service.request.get_header("x-org-id") then
+              kong.service.request.set_header("x-org-id", consumer.custom_id)
+              kong.log.debug("Set x-org-id from consumer custom_id: ", consumer.custom_id)
             end
           end
 
