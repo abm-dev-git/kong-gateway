@@ -25,7 +25,7 @@ _transform: true
 services:
   # Main ABM.dev Backend API (for authenticated routes)
   - name: abmdev-backend
-    url: http://localhost:5003
+    url: http://localhost:5000
     connect_timeout: 60000
     write_timeout: 60000
     read_timeout: 120000
@@ -37,7 +37,7 @@ services:
 
   # Public Backend API (no auth required)
   - name: abmdev-public
-    url: http://localhost:5003
+    url: http://localhost:5000
     connect_timeout: 60000
     write_timeout: 60000
     read_timeout: 120000
