@@ -59,17 +59,20 @@ services:
   kong:
     image: kong:3.5
     container_name: kong
+    # Use host network to access localhost services (backend on 5003)
+    network_mode: host
     environment:
-      # Database configuration
+      # Database configuration (use exposed port since we're on host network)
       KONG_DATABASE: postgres
-      KONG_PG_HOST: kong-db
+      KONG_PG_HOST: 127.0.0.1
+      KONG_PG_PORT: 5434
       KONG_PG_USER: ${KONG_PG_USER:-kong}
       KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-kongpassword}
       KONG_PG_DATABASE: ${KONG_PG_DATABASE:-kong}
 
-      # Proxy configuration
-      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
-      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      # Proxy configuration (use different ports to avoid conflicts)
+      KONG_PROXY_LISTEN: 0.0.0.0:8080, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: 0.0.0.0:8081
 
       # Logging
       KONG_PROXY_ACCESS_LOG: /dev/stdout
@@ -86,13 +89,13 @@ services:
       # SSL (for development)
       KONG_SSL_CERT: /etc/kong/ssl/kong.crt
       KONG_SSL_CERT_KEY: /etc/kong/ssl/kong.key
+
+      # Redis (use exposed port since we're on host network)
+      KONG_REDIS_HOST: 127.0.0.1
+      KONG_REDIS_PORT: 6380
     volumes:
       - ./kong.yml:/etc/kong/kong.yml:ro
       - ./ssl:/etc/kong/ssl:ro
-    ports:
-      - "${KONG_PROXY_PORT:-8080}:8000"
-      - "${KONG_ADMIN_PORT:-8081}:8001"
-      - "${KONG_PROXY_SSL_PORT:-8443}:8443"
     depends_on:
       kong-db:
         condition: service_healthy
@@ -103,9 +106,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    networks:
-      - kong-net
-      - abm-dev-network
     restart: unless-stopped
 
   # ===========================================

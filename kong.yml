@@ -17,7 +17,7 @@ _transform: true
 services:
   # Main ABM.dev Backend API (for authenticated routes)
   - name: abmdev-backend
-    url: http://abm-dev-api:8080
+    url: http://localhost:5003
     connect_timeout: 60000
     write_timeout: 60000
     read_timeout: 120000
@@ -29,7 +29,7 @@ services:
 
   # Public Backend API (no auth required)
   - name: abmdev-public
-    url: http://abm-dev-api:8080
+    url: http://localhost:5003
     connect_timeout: 60000
     write_timeout: 60000
     read_timeout: 120000
@@ -750,8 +750,8 @@ plugins:
       minute: 1000
       # Use Redis for distributed rate limiting
       policy: redis
-      redis_host: redis
-      redis_port: 6379
+      redis_host: 127.0.0.1
+      redis_port: 6380
       redis_timeout: 2000
       # Limit by x-org-id header (set by request-transformer in Issue #8)
       limit_by: header
