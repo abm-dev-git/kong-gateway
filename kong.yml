@@ -610,11 +610,43 @@ routes:
 # ===========================================
 plugins:
   # Correlation ID for request tracing (all routes)
+  # Generates unique ID for each request for distributed tracing
   - name: correlation-id
+    tags:
+      - tracing
+      - correlation
     config:
       header_name: x-correlation-id
       generator: uuid#counter
       echo_downstream: true
+
+  # Post-function plugin to extract org_id from JWT claims
+  # Sets x-org-id header for rate limiting and backend authorization
+  # Note: This runs after JWT plugin validates the token
+  - name: post-function
+    tags:
+      - transformer
+      - org-id
+    config:
+      access:
+        - |
+          -- Extract org_id from JWT claims and set as header
+          local jwt_claims = kong.ctx.shared.authenticated_jwt_claims
+          if jwt_claims and jwt_claims.org_id then
+            kong.service.request.set_header("x-org-id", jwt_claims.org_id)
+            kong.log.debug("Set x-org-id header from JWT: ", jwt_claims.org_id)
+          else
+            -- Try to get org_id from API key consumer custom_id
+            local consumer = kong.client.get_consumer()
+            if consumer and consumer.custom_id then
+              -- Custom ID format: org_<id> for API key consumers
+              local org_id = consumer.custom_id
+              if org_id:sub(1, 4) == "org_" then
+                kong.service.request.set_header("x-org-id", org_id)
+                kong.log.debug("Set x-org-id header from consumer: ", org_id)
+              end
+            end
+          end
 
   # JWT Authentication Plugin (for authenticated routes)
   # Uses anonymous consumer fallback for Either/Or auth pattern
