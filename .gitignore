@@ -1,0 +1,30 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# Kong data
+data/
+
+# PostgreSQL data
+postgres-data/
+
+# Redis data
+redis-data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
