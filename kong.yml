@@ -616,7 +616,65 @@ plugins:
       generator: uuid#counter
       echo_downstream: true
 
+  # JWT Authentication Plugin (for authenticated routes)
+  # Uses anonymous consumer fallback for Either/Or auth pattern
+  - name: jwt
+    tags:
+      - authentication
+      - jwt
+    config:
+      # Header locations to check for JWT
+      header_names:
+        - Authorization
+      # Don't check URI params or cookies
+      uri_param_names: []
+      cookie_names: []
+      # Claims to verify
+      claims_to_verify:
+        - exp
+      # Key claim for identifying the issuer
+      key_claim_name: iss
+      # Not base64 encoded
+      secret_is_base64: false
+      # Run on preflight requests
+      run_on_preflight: true
+      # Anonymous consumer fallback (enables Either/Or auth)
+      # If JWT validation fails, fall through to key-auth plugin
+      anonymous: anonymous
+
 # ===========================================
-# Consumers (to be configured in Issues #5-6)
+# Consumers
 # ===========================================
-consumers: []
+consumers:
+  # Anonymous consumer for fallback auth pattern
+  # When both JWT and API-key auth fail, this consumer is used
+  # Request Termination plugin (Issue #6) will reject these requests
+  - username: anonymous
+    custom_id: anonymous-fallback
+    tags:
+      - anonymous
+      - fallback
+
+  # Clerk JWT Consumer
+  # JWTs from Clerk will be validated against this consumer
+  - username: clerk-jwt
+    custom_id: clerk-issuer
+    tags:
+      - clerk
+      - jwt
+
+# ===========================================
+# JWT Secrets (Clerk JWKS Configuration)
+# ===========================================
+# Note: Kong OSS doesn't support JWKS URL directly in declarative config.
+# The JWT public key must be added via Admin API after startup:
+#
+# curl -X POST http://localhost:8081/consumers/clerk-jwt/jwt \
+#   -d "algorithm=RS256" \
+#   -d "key=https://your-clerk-domain.clerk.accounts.dev" \
+#   -d "rsa_public_key=<PEM encoded public key>"
+#
+# Alternatively, fetch from Clerk JWKS endpoint:
+# curl https://your-clerk-domain.clerk.accounts.dev/.well-known/jwks.json
+#
+# For automated setup, use scripts/setup-clerk-jwt.sh
