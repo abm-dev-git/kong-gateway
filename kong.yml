@@ -1,0 +1,58 @@
+_format_version: "3.0"
+_transform: true
+
+# Kong Gateway Declarative Configuration
+# ABM.dev API Gateway
+#
+# This file defines services, routes, plugins, and consumers.
+# Full route configuration will be added in Issue #4.
+
+# ===========================================
+# Services (Upstream APIs)
+# ===========================================
+services:
+  # Main ABM.dev Backend API
+  - name: abmdev-backend
+    url: ${ABMDEV_API_URL:-http://host.docker.internal:8000}
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 120000
+    retries: 2
+
+# ===========================================
+# Routes (Public - No Auth)
+# ===========================================
+routes:
+  # Health check - public
+  - name: health-check
+    service: abmdev-backend
+    paths:
+      - /health
+    methods:
+      - GET
+    strip_path: false
+
+  # Root welcome - public
+  - name: root
+    service: abmdev-backend
+    paths:
+      - /
+    methods:
+      - GET
+    strip_path: false
+
+# ===========================================
+# Global Plugins
+# ===========================================
+plugins:
+  # Correlation ID for request tracing
+  - name: correlation-id
+    config:
+      header_name: x-correlation-id
+      generator: uuid#counter
+      echo_downstream: true
+
+# ===========================================
+# Consumers (to be expanded in Issue #5-6)
+# ===========================================
+consumers: []
