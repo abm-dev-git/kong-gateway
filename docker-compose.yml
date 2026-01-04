@@ -137,7 +137,7 @@ networks:
     name: kong-net
   abm-dev-network:
     external: true
-    name: abm-dev-network
+    name: abmdev-platform_abm-dev-network
 
 # ===========================================
 # Volumes

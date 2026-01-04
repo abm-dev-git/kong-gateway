@@ -15,7 +15,7 @@ _transform: true
 # Services (Upstream APIs)
 # ===========================================
 services:
-  # Main ABM.dev Backend API
+  # Main ABM.dev Backend API (for authenticated routes)
   - name: abmdev-backend
     url: http://abm-dev-api:8080
     connect_timeout: 60000
@@ -25,6 +25,19 @@ services:
     tags:
       - backend
       - abmdev
+      - authenticated
+
+  # Public Backend API (no auth required)
+  - name: abmdev-public
+    url: http://abm-dev-api:8080
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 120000
+    retries: 2
+    tags:
+      - backend
+      - abmdev
+      - public
 
 # ===========================================
 # Routes - Public (No Authentication)
@@ -32,7 +45,7 @@ services:
 routes:
   # Root welcome endpoint
   - name: root
-    service: abmdev-backend
+    service: abmdev-public
     paths:
       - /
     methods:
@@ -43,7 +56,7 @@ routes:
 
   # Health check endpoint
   - name: health-check
-    service: abmdev-backend
+    service: abmdev-public
     paths:
       - /health
     methods:
@@ -55,7 +68,7 @@ routes:
 
   # Clerk webhook (no auth, signature verified by backend)
   - name: webhooks-clerk
-    service: abmdev-backend
+    service: abmdev-public
     paths:
       - /webhooks/clerk
     methods:
@@ -648,9 +661,10 @@ plugins:
             end
           end
 
-  # JWT Authentication Plugin (for authenticated routes)
+  # JWT Authentication Plugin (for authenticated service only)
   # Uses anonymous consumer fallback for Either/Or auth pattern
   - name: jwt
+    service: abmdev-backend
     tags:
       - authentication
       - jwt
@@ -674,9 +688,10 @@ plugins:
       # If JWT validation fails, fall through to key-auth plugin
       anonymous: anonymous
 
-  # Key Authentication Plugin (for authenticated routes)
+  # Key Authentication Plugin (for authenticated service only)
   # Uses anonymous consumer fallback for Either/Or auth pattern
   - name: key-auth
+    service: abmdev-backend
     tags:
       - authentication
       - api-key
@@ -695,18 +710,18 @@ plugins:
       # If API key validation fails, fall through to anonymous consumer
       anonymous: anonymous
 
-  # Request Termination Plugin (for anonymous consumer)
+  # Request Termination Plugin (for anonymous consumer on authenticated service)
   # Rejects requests that fall through to anonymous consumer
   # This ensures unauthenticated requests get a proper 401 response
   - name: request-termination
+    service: abmdev-backend
     consumer: anonymous
     tags:
       - authentication
       - termination
     config:
       status_code: 401
-      message: "Authentication required. Provide either a JWT Bearer token in the Authorization header or an API key in the x-api-key header."
-      content_type: "application/json"
+      message: "Authentication required. Provide JWT Bearer token or x-api-key header."
 
 # ===========================================
 # Rate Limiting Plugins
