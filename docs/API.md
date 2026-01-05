@@ -352,6 +352,136 @@ Translate CRM-specific field names to canonical names.
 
 ---
 
+### CRM Integrations
+
+Manage CRM integration connections (e.g., HubSpot Private App tokens).
+
+#### POST /v1/crm/config/integrations/test
+
+Test a CRM API key before saving.
+
+**Rate Limit:** 5 requests/minute (strict limit to prevent enumeration)
+
+**Request:**
+```json
+{
+  "integrationType": "hubspot",
+  "apiKey": "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "data": {
+    "connected": true,
+    "integration_type": "hubspot",
+    "portal_id": "12345678",
+    "test_status": "success",
+    "error_message": null,
+    "rate_limit": {
+      "remaining": 95,
+      "limit": 100
+    }
+  },
+  "success": true
+}
+```
+
+**Response (Failure):**
+```json
+{
+  "data": {
+    "connected": false,
+    "integration_type": "hubspot",
+    "portal_id": null,
+    "test_status": "failed",
+    "error_message": "Invalid API key or insufficient permissions"
+  },
+  "success": true
+}
+```
+
+---
+
+#### GET /v1/crm/config/integrations
+
+List all integrations for your organization.
+
+**Query Parameters:**
+- `activeOnly` - Only return active integrations (default: true)
+
+**Response:**
+```json
+{
+  "data": {
+    "integrations": [
+      {
+        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "integration_type": "hubspot",
+        "display_name": "My HubSpot Account",
+        "portal_id": "12345678",
+        "is_active": true,
+        "test_status": "success",
+        "last_tested_at": "2024-01-15T12:00:00Z",
+        "created_at": "2024-01-15T12:00:00Z"
+      }
+    ],
+    "total_count": 1
+  },
+  "success": true
+}
+```
+
+---
+
+#### POST /v1/crm/config/integrations
+
+Create a new CRM integration. Requires Admin role.
+
+**Request:**
+```json
+{
+  "integrationType": "hubspot",
+  "displayName": "My HubSpot Account",
+  "apiKey": "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "portalId": "12345678",
+  "isActive": true
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "data": {
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "integration_type": "hubspot",
+    "display_name": "My HubSpot Account",
+    "portal_id": "12345678",
+    "is_active": true,
+    "test_status": "success",
+    "created_at": "2024-01-15T12:00:00Z"
+  },
+  "success": true
+}
+```
+
+---
+
+#### GET /v1/crm/config/integrations/{integrationId}
+
+Get a specific integration by ID.
+
+---
+
+#### DELETE /v1/crm/config/integrations/{integrationId}
+
+Delete an integration. Requires Admin role.
+
+**Response:** 204 No Content
+
+---
+
 ### CRM Contacts
 
 #### POST /v1/crm/contacts

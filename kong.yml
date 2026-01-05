@@ -6,10 +6,11 @@ _transform: true
 #
 # This file defines services, routes, plugins, and consumers.
 #
-# Route Summary (29 total):
+# Route Summary (32 total):
 #   - Public: 3 (root, health, webhooks)
 #   - Enrichment API: 9 endpoints (core product)
 #   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
+#   - CRM Integrations: 3 endpoints (test, list/create, by-id) - Epic #247
 #   - CRM Contacts: 3 endpoints (create, search, by-id)
 #   - CRM Companies: 3 endpoints (create, search, by-id)
 #   - Organizations: 2 endpoints
@@ -381,6 +382,71 @@ routes:
         config:
           replace:
             uri: /api/v1/crm/config/translate/to-canonical
+
+# ===========================================
+# Routes - CRM Integrations (api/v1/crm/config/integrations)
+# Epic #247: Portal Integration - HubSpot Settings
+# ===========================================
+
+  # POST /v1/crm/config/integrations/test -> Test API key before saving
+  # STRICT rate limit (5/min) to prevent API key enumeration attacks
+  - name: crm-integrations-test
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/integrations/test$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/integrations/test
+
+  # GET/POST /v1/crm/config/integrations -> List/create integrations
+  - name: crm-integrations
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/integrations$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    regex_priority: 150
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/integrations
+
+  # GET/DELETE /v1/crm/config/integrations/{id} -> Get/delete specific integration
+  - name: crm-integration-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/integrations/(?<integrationId>[^/]+)$
+    methods:
+      - GET
+      - DELETE
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/integrations/$(uri_captures.integrationId)
 
 # ===========================================
 # Routes - CRM Contacts (api/v1/crm/contacts)
