@@ -1,0 +1,887 @@
+_format_version: "3.0"
+_transform: true
+
+# Kong Gateway Declarative Configuration
+# ABM.dev API Gateway - External Customer API
+#
+# This file defines services, routes, plugins, and consumers.
+#
+# Route Summary (32 total):
+#   - Public: 3 (root, health, webhooks)
+#   - Enrichment API: 9 endpoints (core product)
+#   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
+#   - CRM Integrations: 3 endpoints (test, list/create, by-id) - Epic #247
+#   - CRM Contacts: 3 endpoints (create, search, by-id)
+#   - CRM Companies: 3 endpoints (create, search, by-id)
+#   - Organizations: 2 endpoints
+#   - API Keys: 2 endpoints
+#   - Status: 1 endpoint
+#
+# NOT exposed (internal only):
+#   - HubSpot-specific endpoints (use generic CRM API)
+#   - LinkedIn connection management (portal settings)
+#   - Integration status checks (linkedin, hunter, hubspot)
+
+# ===========================================
+# Services (Upstream APIs)
+# ===========================================
+services:
+  # Main ABM.dev Backend API (for authenticated routes)
+  - name: abmdev-backend
+    url: http://localhost:5000
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 120000
+    retries: 2
+    tags:
+      - backend
+      - abmdev
+      - authenticated
+
+  # Public Backend API (no auth required)
+  - name: abmdev-public
+    url: http://localhost:5000
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 120000
+    retries: 2
+    tags:
+      - backend
+      - abmdev
+      - public
+
+# ===========================================
+# Routes - Public (No Authentication)
+# ===========================================
+routes:
+  # Root welcome endpoint (exact match only)
+  - name: root
+    service: abmdev-public
+    paths:
+      - ~/$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - public
+
+  # Health check endpoint
+  - name: health-check
+    service: abmdev-public
+    paths:
+      - /health
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - public
+      - health
+
+  # Clerk webhook (no auth, signature verified by backend)
+  - name: webhooks-clerk
+    service: abmdev-public
+    paths:
+      - /webhooks/clerk
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - public
+      - webhook
+
+# ===========================================
+# Routes - Enrichment (20 req/min rate limit)
+# ===========================================
+
+  # POST /v1/enrichments -> /api/v1/enrichments
+  # Single entity enrichment (default):
+  #   { "entity_type": "person", "entity_data": { "email": "john@example.com" } }
+  # Bulk enrichment (requires explicit flag):
+  #   { "bulk": true, "entities": [ { "entity_type": "person", "entity_data": {...} }, ... ] }
+  - name: enrichments
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments
+
+  # GET/POST /v1/enrichment/jobs -> /api/v1/enrichment/jobs
+  - name: enrichment-jobs
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs
+
+  # GET/DELETE /v1/enrichment/jobs/{jobId} -> /api/v1/enrichment/jobs/{jobId}
+  - name: enrichment-job-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)$
+    methods:
+      - GET
+      - DELETE
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)
+
+  # GET /v1/enrichment/jobs/{jobId}/stream -> /api/v1/enrichment/jobs/{jobId}/stream
+  - name: enrichment-job-stream
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)/stream$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - streaming
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)/stream
+
+  # POST /v1/enrichment/preflight -> /api/v1/enrichment/preflight
+  - name: enrichment-preflight
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/preflight$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/preflight
+
+# ===========================================
+# Routes - Configuration (100 req/min rate limit)
+# ===========================================
+
+  # GET/POST /v1/enrichment/configurations -> /api/v1/enrichment/configurations
+  - name: enrichment-configurations
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/configurations$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/configurations
+
+  # GET/PUT/DELETE /v1/enrichment/configurations/{configId}
+  - name: enrichment-configuration-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/configurations/(?<configId>[^/]+)$
+    methods:
+      - GET
+      - PUT
+      - DELETE
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/configurations/$(uri_captures.configId)
+
+  # GET/POST /v1/enrichment/field-mappings -> /api/v1/enrichment/field-mappings
+  - name: enrichment-field-mappings
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/field-mappings$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/field-mappings
+
+  # GET/PUT/DELETE /v1/enrichment/field-mappings/{mappingId}
+  - name: enrichment-field-mapping-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/field-mappings/(?<mappingId>[^/]+)$
+    methods:
+      - GET
+      - PUT
+      - DELETE
+    strip_path: false
+    tags:
+      - configuration
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/field-mappings/$(uri_captures.mappingId)
+
+# ===========================================
+# Routes - CRM Configuration (api/v1/crm/config)
+# ===========================================
+
+  # GET /v1/crm/config/platforms -> List supported CRM platforms
+  - name: crm-config-platforms
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/platforms$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/platforms
+
+  # GET /v1/crm/config/platforms/{platform}/health -> Check CRM connection
+  - name: crm-config-platform-health
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/health$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/health
+
+  # GET /v1/crm/config/platforms/{platform}/fields -> Get available fields
+  - name: crm-config-platform-fields
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/fields$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/fields
+
+  # GET /v1/crm/config/platforms/{platform}/mappings -> Get field mappings
+  - name: crm-config-platform-mappings
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/mappings$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/mappings
+
+  # GET /v1/crm/config/translate/to-platform -> Translate to CRM field names
+  - name: crm-config-translate-to-platform
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/translate/to-platform$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/translate/to-platform
+
+  # GET /v1/crm/config/translate/to-canonical -> Translate to canonical names
+  - name: crm-config-translate-to-canonical
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/translate/to-canonical$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/translate/to-canonical
+
+# ===========================================
+# Routes - CRM Integrations (api/v1/crm/config/integrations)
+# Epic #247: Portal Integration - HubSpot Settings
+# ===========================================
+
+  # POST /v1/crm/config/integrations/test -> Test API key before saving
+  # STRICT rate limit (5/min) to prevent API key enumeration attacks
+  - name: crm-integrations-test
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/integrations/test$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/integrations/test
+
+  # GET/POST /v1/crm/config/integrations -> List/create integrations
+  - name: crm-integrations
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/integrations$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    regex_priority: 150
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/integrations
+
+  # GET/DELETE /v1/crm/config/integrations/{id} -> Get/delete specific integration
+  - name: crm-integration-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/integrations/(?<integrationId>[^/]+)$
+    methods:
+      - GET
+      - DELETE
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/integrations/$(uri_captures.integrationId)
+
+# ===========================================
+# Routes - CRM Contacts (api/v1/crm/contacts)
+# ===========================================
+
+  # POST /v1/crm/contacts -> Create contact
+  - name: crm-contacts-create
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/contacts$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/contacts
+
+  # POST /v1/crm/contacts/search -> Search contacts
+  - name: crm-contacts-search
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/contacts/search$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/contacts/search
+
+  # GET/PATCH/DELETE /v1/crm/contacts/{id} -> Manage contact
+  - name: crm-contacts-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/contacts/(?<contactId>[^/]+)$
+    methods:
+      - GET
+      - PATCH
+      - DELETE
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/contacts/$(uri_captures.contactId)
+
+# ===========================================
+# Routes - CRM Companies (api/v1/crm/companies)
+# ===========================================
+
+  # POST /v1/crm/companies -> Create company
+  - name: crm-companies-create
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/companies$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/companies
+
+  # POST /v1/crm/companies/search -> Search companies
+  - name: crm-companies-search
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/companies/search$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/companies/search
+
+  # GET/PATCH/DELETE /v1/crm/companies/{id} -> Manage company
+  - name: crm-companies-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/companies/(?<companyId>[^/]+)$
+    methods:
+      - GET
+      - PATCH
+      - DELETE
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/companies/$(uri_captures.companyId)
+
+# ===========================================
+# Routes - API Keys (100 req/min)
+# ===========================================
+
+  # GET/POST /v1/api-keys -> /api/v1/ApiKeys
+  - name: api-keys
+    service: abmdev-backend
+    paths:
+      - ~/v1/api-keys$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - api-keys
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/ApiKeys
+
+  # DELETE /v1/api-keys/{keyId} -> /api/v1/ApiKeys/{keyId}
+  - name: api-key-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/api-keys/(?<keyId>[^/]+)$
+    methods:
+      - DELETE
+    strip_path: false
+    tags:
+      - api-keys
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/ApiKeys/$(uri_captures.keyId)
+
+# ===========================================
+# Routes - Organizations (100 req/min)
+# ===========================================
+
+  # GET /v1/organizations/current
+  - name: organizations-current
+    service: abmdev-backend
+    paths:
+      - ~/v1/organizations/current$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - organization
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/organizations/current
+
+  # GET /v1/organizations/current/usage
+  - name: organizations-usage
+    service: abmdev-backend
+    paths:
+      - ~/v1/organizations/current/usage$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - organization
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/organizations/current/usage
+
+# ===========================================
+# Routes - Status (No rate limit)
+# ===========================================
+
+  # GET /v1/status
+  - name: status
+    service: abmdev-backend
+    paths:
+      - ~/v1/status$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - status
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/status
+
+# ===========================================
+# Global Plugins
+# ===========================================
+plugins:
+  # Correlation ID for request tracing (all routes)
+  # Generates unique ID for each request for distributed tracing
+  - name: correlation-id
+    tags:
+      - tracing
+      - correlation
+    config:
+      header_name: x-correlation-id
+      generator: uuid#counter
+      echo_downstream: true
+
+  # Post-function plugin to set auth headers for backend gateway-trusted mode
+  # Sets x-kong-* headers and x-org-id for backend authentication
+  # Note: This runs after JWT/key-auth plugins validate the request
+  # Related: kong-gateway#15, abm.dev-platform#231
+  - name: post-function
+    tags:
+      - transformer
+      - org-id
+      - gateway-auth
+    config:
+      access:
+        - |
+          -- Set authentication headers for backend gateway-trusted mode
+          -- Backend can trust these headers instead of re-validating
+
+          -- Extract JWT claims and set headers
+          local jwt_claims = kong.ctx.shared.authenticated_jwt_claims
+          if jwt_claims then
+            -- Set user ID from sub claim
+            if jwt_claims.sub then
+              kong.service.request.set_header("x-kong-jwt-claim-sub", jwt_claims.sub)
+              kong.log.debug("Set x-kong-jwt-claim-sub: ", jwt_claims.sub)
+            end
+
+            -- Set org ID from o.id claim (Clerk format) or org_id
+            if jwt_claims.o and jwt_claims.o.id then
+              kong.service.request.set_header("x-kong-jwt-claim-org-id", jwt_claims.o.id)
+              kong.service.request.set_header("x-org-id", jwt_claims.o.id)
+              kong.log.debug("Set x-org-id from JWT o.id: ", jwt_claims.o.id)
+            elseif jwt_claims.org_id then
+              kong.service.request.set_header("x-kong-jwt-claim-org-id", jwt_claims.org_id)
+              kong.service.request.set_header("x-org-id", jwt_claims.org_id)
+              kong.log.debug("Set x-org-id from JWT org_id: ", jwt_claims.org_id)
+            end
+
+            -- Set email if present
+            if jwt_claims.email then
+              kong.service.request.set_header("x-kong-jwt-claim-email", jwt_claims.email)
+              kong.log.debug("Set x-kong-jwt-claim-email: ", jwt_claims.email)
+            end
+          end
+
+          -- Set consumer headers for all authenticated requests
+          local consumer = kong.client.get_consumer()
+          if consumer then
+            -- Set consumer ID
+            if consumer.id then
+              kong.service.request.set_header("x-kong-consumer-id", consumer.id)
+              kong.log.debug("Set x-kong-consumer-id: ", consumer.id)
+            end
+
+            -- Set consumer username
+            if consumer.username then
+              kong.service.request.set_header("x-kong-consumer-username", consumer.username)
+              kong.log.debug("Set x-kong-consumer-username: ", consumer.username)
+            end
+
+            -- Fallback: set x-org-id from consumer custom_id if not already set
+            if consumer.custom_id and not kong.service.request.get_header("x-org-id") then
+              kong.service.request.set_header("x-org-id", consumer.custom_id)
+              kong.log.debug("Set x-org-id from consumer custom_id: ", consumer.custom_id)
+            end
+          end
+
+  # JWT Authentication Plugin (for authenticated service only)
+  # Uses anonymous consumer fallback for Either/Or auth pattern
+  - name: jwt
+    service: abmdev-backend
+    tags:
+      - authentication
+      - jwt
+    config:
+      # Header locations to check for JWT
+      header_names:
+        - Authorization
+      # Don't check URI params or cookies
+      uri_param_names: []
+      cookie_names: []
+      # Claims to verify
+      claims_to_verify:
+        - exp
+      # Key claim for identifying the issuer
+      key_claim_name: iss
+      # Not base64 encoded
+      secret_is_base64: false
+      # Run on preflight requests
+      run_on_preflight: true
+      # Anonymous consumer fallback (enables Either/Or auth)
+      # If JWT validation fails, fall through to key-auth plugin
+      anonymous: anonymous
+
+  # Key Authentication Plugin (for authenticated service only)
+  # Uses anonymous consumer fallback for Either/Or auth pattern
+  - name: key-auth
+    service: abmdev-backend
+    tags:
+      - authentication
+      - api-key
+    config:
+      # Header and query param names to check for API key
+      key_names:
+        - x-api-key
+        - apikey
+      # Check in both header and query
+      key_in_header: true
+      key_in_query: true
+      key_in_body: false
+      # Don't hide the credential from upstream
+      hide_credentials: false
+      # Anonymous consumer fallback (enables Either/Or auth)
+      # If API key validation fails, fall through to anonymous consumer
+      anonymous: anonymous
+
+  # Request Termination Plugin (for anonymous consumer on authenticated service)
+  # Rejects requests that fall through to anonymous consumer
+  # This ensures unauthenticated requests get a proper 401 response
+  - name: request-termination
+    service: abmdev-backend
+    consumer: anonymous
+    tags:
+      - authentication
+      - termination
+    config:
+      status_code: 401
+      message: "Authentication required. Provide JWT Bearer token or x-api-key header."
+
+# ===========================================
+# Rate Limiting Plugins
+# ===========================================
+# Rate limits are applied per org_id (from x-org-id header)
+# Two tiers:
+#   - Enrichment routes: 20 requests/minute (expensive operations)
+#   - Standard routes: 100 requests/minute
+#
+# Rate limiting is applied via Admin API after startup using tags:
+#   - Routes with tag 'rate-limit-enrichment' get 20/min
+#   - Routes with tag 'rate-limit-standard' get 100/min
+#
+# Run: ./scripts/setup-rate-limiting.sh
+#
+# Note: Global rate-limit plugin below is a fallback for untagged routes
+
+  # Global fallback rate limit (applies to all routes)
+  # More specific rate limits are added via Admin API to tagged routes
+  - name: rate-limiting
+    tags:
+      - rate-limiting
+      - global
+    config:
+      # Default global limit
+      minute: 1000
+      # Use Redis for distributed rate limiting
+      policy: redis
+      redis_host: 127.0.0.1
+      redis_port: 6380
+      redis_timeout: 2000
+      # Limit by x-org-id header (set by request-transformer in Issue #8)
+      limit_by: header
+      header_name: x-org-id
+      # Return rate limit headers
+      hide_client_headers: false
+      # Count all response statuses
+      fault_tolerant: true
+
+# ===========================================
+# Consumers
+# ===========================================
+consumers:
+  # Anonymous consumer for fallback auth pattern
+  # When both JWT and API-key auth fail, this consumer is used
+  # Request Termination plugin (Issue #6) will reject these requests
+  - username: anonymous
+    custom_id: anonymous-fallback
+    tags:
+      - anonymous
+      - fallback
+
+  # Clerk JWT Consumer
+  # JWTs from Clerk will be validated against this consumer
+  - username: clerk-jwt
+    custom_id: clerk-issuer
+    tags:
+      - clerk
+      - jwt
+
+# ===========================================
+# JWT Secrets (Clerk JWKS Configuration)
+# ===========================================
+# Note: Kong OSS doesn't support JWKS URL directly in declarative config.
+# The JWT public key must be added via Admin API after startup:
+#
+# curl -X POST http://localhost:8081/consumers/clerk-jwt/jwt \
+#   -d "algorithm=RS256" \
+#   -d "key=https://your-clerk-domain.clerk.accounts.dev" \
+#   -d "rsa_public_key=<PEM encoded public key>"
+#
+# Alternatively, fetch from Clerk JWKS endpoint:
+# curl https://your-clerk-domain.clerk.accounts.dev/.well-known/jwks.json
+#
+# For automated setup, use scripts/setup-clerk-jwt.sh

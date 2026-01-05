@@ -28,3 +28,9 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# SSL certificates (generated locally)
+ssl/*.crt
+ssl/*.key
+ssl/*.pem
+!ssl/.gitkeep
