@@ -254,7 +254,9 @@ Delete a field mapping.
 
 Generic, platform-agnostic CRM integration.
 
-### GET /v1/crm/platforms
+### CRM Configuration
+
+#### GET /v1/crm/config/platforms
 
 List supported CRM platforms.
 
@@ -280,7 +282,7 @@ List supported CRM platforms.
 
 ---
 
-### GET /v1/crm/platforms/{platform}/health
+#### GET /v1/crm/config/platforms/{platform}/health
 
 Check CRM connection health.
 
@@ -296,7 +298,7 @@ Check CRM connection health.
 
 ---
 
-### GET /v1/crm/platforms/{platform}/fields
+#### GET /v1/crm/config/platforms/{platform}/fields
 
 Get available fields from the CRM.
 
@@ -324,7 +326,35 @@ Get available fields from the CRM.
 
 ---
 
-### POST /v1/crm/contacts
+#### GET /v1/crm/config/platforms/{platform}/mappings
+
+Get field mappings for a specific CRM platform.
+
+---
+
+#### GET /v1/crm/config/translate/to-platform
+
+Translate canonical field names to CRM-specific names.
+
+**Query Parameters:**
+- `platform` - Target CRM platform (e.g., "hubspot")
+- `field` - Canonical field name to translate
+
+---
+
+#### GET /v1/crm/config/translate/to-canonical
+
+Translate CRM-specific field names to canonical names.
+
+**Query Parameters:**
+- `platform` - Source CRM platform (e.g., "hubspot")
+- `field` - CRM field name to translate
+
+---
+
+### CRM Contacts
+
+#### POST /v1/crm/contacts
 
 Create a contact in the connected CRM.
 
@@ -342,7 +372,7 @@ Create a contact in the connected CRM.
 
 ---
 
-### POST /v1/crm/contacts/search
+#### POST /v1/crm/contacts/search
 
 Search contacts in the CRM.
 
@@ -359,34 +389,68 @@ Search contacts in the CRM.
 
 ---
 
-### GET /v1/crm/contacts/{contactId}
+#### GET /v1/crm/contacts/{contactId}
 
 Get a contact by ID.
 
-### PATCH /v1/crm/contacts/{contactId}
+#### PATCH /v1/crm/contacts/{contactId}
 
 Update a contact.
 
-### DELETE /v1/crm/contacts/{contactId}
+#### DELETE /v1/crm/contacts/{contactId}
 
 Delete a contact.
 
 ---
 
-### GET /v1/crm/mappings
+### CRM Companies
 
-Get field mappings between ABM.dev and your CRM.
+#### POST /v1/crm/companies
+
+Create a company in the connected CRM.
+
+**Request:**
+```json
+{
+  "platform": "hubspot",
+  "properties": {
+    "name": "Acme Corp",
+    "domain": "acme.com",
+    "industry": "Technology"
+  }
+}
+```
 
 ---
 
-### GET /v1/crm/translate
+#### POST /v1/crm/companies/search
 
-Translate field names between platforms.
+Search companies in the CRM.
 
-**Query Parameters:**
-- `from` - Source platform (e.g., "abmdev")
-- `to` - Target platform (e.g., "hubspot")
-- `field` - Field name to translate
+**Request:**
+```json
+{
+  "platform": "hubspot",
+  "filters": [
+    { "property": "domain", "operator": "equals", "value": "acme.com" }
+  ],
+  "limit": 50
+}
+```
+
+---
+
+#### GET /v1/crm/companies/{companyId}
+
+Get a company by ID.
+
+#### PATCH /v1/crm/companies/{companyId}
+
+Update a company.
+
+#### DELETE /v1/crm/companies/{companyId}
+
+Delete a company.
 
 ---
 

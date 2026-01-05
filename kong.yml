@@ -6,10 +6,12 @@ _transform: true
 #
 # This file defines services, routes, plugins, and consumers.
 #
-# Route Summary (25 total):
+# Route Summary (29 total):
 #   - Public: 3 (root, health, webhooks)
 #   - Enrichment API: 9 endpoints (core product)
-#   - CRM API: 8 endpoints (generic, platform-agnostic)
+#   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
+#   - CRM Contacts: 3 endpoints (create, search, by-id)
+#   - CRM Companies: 3 endpoints (create, search, by-id)
 #   - Organizations: 2 endpoints
 #   - API Keys: 2 endpoints
 #   - Status: 1 endpoint
@@ -269,14 +271,14 @@ routes:
             uri: /api/v1/enrichment/field-mappings/$(uri_captures.mappingId)
 
 # ===========================================
-# Routes - CRM (Generic, Platform-Agnostic)
+# Routes - CRM Configuration (api/v1/crm/config)
 # ===========================================
 
-  # GET /v1/crm/platforms -> List supported CRM platforms
-  - name: crm-platforms
+  # GET /v1/crm/config/platforms -> List supported CRM platforms
+  - name: crm-config-platforms
     service: abmdev-backend
     paths:
-      - ~/v1/crm/platforms$
+      - ~/v1/crm/config/platforms$
     methods:
       - GET
     strip_path: false
@@ -288,13 +290,13 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/crm/platforms
+            uri: /api/v1/crm/config/platforms
 
-  # GET /v1/crm/platforms/{platform}/health -> Check CRM connection health
-  - name: crm-platform-health
+  # GET /v1/crm/config/platforms/{platform}/health -> Check CRM connection
+  - name: crm-config-platform-health
     service: abmdev-backend
     paths:
-      - ~/v1/crm/platforms/(?<platform>[^/]+)/health$
+      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/health$
     methods:
       - GET
     strip_path: false
@@ -306,13 +308,13 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/crm/platforms/$(uri_captures.platform)/health
+            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/health
 
-  # GET /v1/crm/platforms/{platform}/fields -> Get available CRM fields
-  - name: crm-platform-fields
+  # GET /v1/crm/config/platforms/{platform}/fields -> Get available fields
+  - name: crm-config-platform-fields
     service: abmdev-backend
     paths:
-      - ~/v1/crm/platforms/(?<platform>[^/]+)/fields$
+      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/fields$
     methods:
       - GET
     strip_path: false
@@ -324,10 +326,68 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/crm/platforms/$(uri_captures.platform)/fields
+            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/fields
+
+  # GET /v1/crm/config/platforms/{platform}/mappings -> Get field mappings
+  - name: crm-config-platform-mappings
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/mappings$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/mappings
+
+  # GET /v1/crm/config/translate/to-platform -> Translate to CRM field names
+  - name: crm-config-translate-to-platform
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/translate/to-platform$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/translate/to-platform
+
+  # GET /v1/crm/config/translate/to-canonical -> Translate to canonical names
+  - name: crm-config-translate-to-canonical
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/config/translate/to-canonical$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/config/translate/to-canonical
+
+# ===========================================
+# Routes - CRM Contacts (api/v1/crm/contacts)
+# ===========================================
 
   # POST /v1/crm/contacts -> Create contact
-  - name: crm-contacts
+  - name: crm-contacts-create
     service: abmdev-backend
     paths:
       - ~/v1/crm/contacts$
@@ -363,7 +423,7 @@ routes:
             uri: /api/v1/crm/contacts/search
 
   # GET/PATCH/DELETE /v1/crm/contacts/{id} -> Manage contact
-  - name: crm-contact-by-id
+  - name: crm-contacts-by-id
     service: abmdev-backend
     paths:
       - ~/v1/crm/contacts/(?<contactId>[^/]+)$
@@ -382,31 +442,17 @@ routes:
           replace:
             uri: /api/v1/crm/contacts/$(uri_captures.contactId)
 
-  # GET /v1/crm/mappings -> Get field mappings
-  - name: crm-field-mappings
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/mappings$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/mappings
+# ===========================================
+# Routes - CRM Companies (api/v1/crm/companies)
+# ===========================================
 
-  # GET /v1/crm/translate -> Translate field names between platforms
-  - name: crm-translate-field
+  # POST /v1/crm/companies -> Create company
+  - name: crm-companies-create
     service: abmdev-backend
     paths:
-      - ~/v1/crm/translate$
+      - ~/v1/crm/companies$
     methods:
-      - GET
+      - POST
     strip_path: false
     tags:
       - crm
@@ -416,7 +462,45 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/crm/translate
+            uri: /api/v1/crm/companies
+
+  # POST /v1/crm/companies/search -> Search companies
+  - name: crm-companies-search
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/companies/search$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/companies/search
+
+  # GET/PATCH/DELETE /v1/crm/companies/{id} -> Manage company
+  - name: crm-companies-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/crm/companies/(?<companyId>[^/]+)$
+    methods:
+      - GET
+      - PATCH
+      - DELETE
+    strip_path: false
+    tags:
+      - crm
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/crm/companies/$(uri_captures.companyId)
 
 # ===========================================
 # Routes - API Keys (100 req/min)
