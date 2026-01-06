@@ -6,7 +6,7 @@ _transform: true
 #
 # This file defines services, routes, plugins, and consumers.
 #
-# Route Summary (32 total):
+# Route Summary (33 total):
 #   - Public: 3 (root, health, webhooks)
 #   - Enrichment API: 9 endpoints (core product)
 #   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
@@ -54,6 +54,20 @@ services:
 # Routes - Public (No Authentication)
 # ===========================================
 routes:
+  # CORS Preflight Handler - Catch-all for OPTIONS requests
+  # Handles browser preflight requests for cross-origin API calls
+  - name: cors-preflight
+    service: abmdev-backend
+    paths:
+      - /
+    methods:
+      - OPTIONS
+    strip_path: false
+    regex_priority: 0
+    tags:
+      - cors
+      - public
+
   # Root welcome endpoint (exact match only)
   - name: root
     service: abmdev-public
