@@ -743,7 +743,8 @@ plugins:
             end
 
             -- Fallback: set x-org-id from consumer custom_id if not already set
-            if consumer.custom_id and not kong.service.request.get_header("x-org-id") then
+            -- FIX: Use kong.request.get_header() to read incoming headers (not kong.service.request.get_header)
+            if consumer.custom_id and not kong.request.get_header("x-org-id") then
               kong.service.request.set_header("x-org-id", consumer.custom_id)
               kong.log.debug("Set x-org-id from consumer custom_id: ", consumer.custom_id)
             end
