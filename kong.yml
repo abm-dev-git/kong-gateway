@@ -797,6 +797,16 @@ plugins:
               kong.service.request.set_header("x-org-id", consumer.custom_id)
               kong.log.debug("Set x-org-id from consumer custom_id: ", consumer.custom_id)
             end
+
+            -- Fallback: set x-kong-jwt-claim-sub from consumer username if not already set
+            -- This allows API key auth to work for endpoints that require user context
+            if consumer.username and not kong.request.get_header("x-kong-jwt-claim-sub") then
+              -- Only set if username looks like a user ID (starts with "user_")
+              if string.sub(consumer.username, 1, 5) == "user_" then
+                kong.service.request.set_header("x-kong-jwt-claim-sub", consumer.username)
+                kong.log.debug("Set x-kong-jwt-claim-sub from consumer username: ", consumer.username)
+              end
+            end
           end
 
   # JWT Authentication Plugin (for authenticated service only)
