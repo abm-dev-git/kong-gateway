@@ -674,6 +674,41 @@ routes:
 # Global Plugins
 # ===========================================
 plugins:
+  # CORS Plugin - Enable cross-origin requests from portal
+  # Handles OPTIONS preflight requests automatically
+  - name: cors
+    tags:
+      - cors
+      - security
+    config:
+      origins:
+        - https://dev.abm.dev
+        - https://abm.dev
+        - https://www.abm.dev
+        - http://localhost:3000
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - OPTIONS
+      headers:
+        - Authorization
+        - Content-Type
+        - X-API-Key
+        - x-api-key
+        - x-org-id
+        - x-correlation-id
+      exposed_headers:
+        - x-correlation-id
+        - x-kong-request-id
+        - X-RateLimit-Limit-Minute
+        - X-RateLimit-Remaining-Minute
+      credentials: true
+      max_age: 86400
+      preflight_continue: false
+
   # Correlation ID for request tracing (all routes)
   # Generates unique ID for each request for distributed tracing
   - name: correlation-id
