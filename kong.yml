@@ -6,20 +6,20 @@ _transform: true
 #
 # This file defines services, routes, plugins, and consumers.
 #
-# Route Summary (33 total):
+# Route Summary (39 total):
 #   - Public: 3 (root, health, webhooks)
 #   - Enrichment API: 9 endpoints (core product)
 #   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
 #   - CRM Integrations: 3 endpoints (test, list/create, by-id) - Epic #247
 #   - CRM Contacts: 3 endpoints (create, search, by-id)
 #   - CRM Companies: 3 endpoints (create, search, by-id)
+#   - LinkedIn Connection: 6 endpoints (availability, initialize, status, verify, disconnect, profile)
 #   - Organizations: 2 endpoints
 #   - API Keys: 2 endpoints
 #   - Status: 1 endpoint
 #
 # NOT exposed (internal only):
 #   - HubSpot-specific endpoints (use generic CRM API)
-#   - LinkedIn connection management (portal settings)
 #   - Integration status checks (linkedin, hunter, hubspot)
 
 # ===========================================
@@ -581,6 +581,118 @@ routes:
         config:
           replace:
             uri: /api/v1/crm/companies/$(uri_captures.companyId)
+
+# ===========================================
+# Routes - LinkedIn Connection (Portal Settings)
+# ===========================================
+
+  # GET /v1/linkedin-connection/availability -> Check if session can be created
+  - name: linkedin-connection-availability
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/availability$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/availability
+
+  # POST /v1/linkedin-connection/initialize -> Create Browserbase session
+  - name: linkedin-connection-initialize
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/initialize$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/initialize
+
+  # GET /v1/linkedin-connection/status -> Get connection status
+  - name: linkedin-connection-status
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/status$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/status
+
+  # POST /v1/linkedin-connection/verify -> Verify login completed
+  - name: linkedin-connection-verify
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/verify$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/verify
+
+  # DELETE /v1/linkedin-connection -> Disconnect account
+  - name: linkedin-connection-disconnect
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection$
+    methods:
+      - DELETE
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection
+
+  # GET /v1/linkedin-connection/profile -> Get profile data
+  - name: linkedin-connection-profile
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/profile$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/profile
 
 # ===========================================
 # Routes - API Keys (100 req/min)
