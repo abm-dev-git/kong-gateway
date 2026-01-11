@@ -6,16 +6,19 @@ _transform: true
 #
 # This file defines services, routes, plugins, and consumers.
 #
-# Route Summary (39 total):
+# Route Summary (83 total):
 #   - Public: 3 (root, health, webhooks)
 #   - Enrichment API: 9 endpoints (core product)
 #   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
 #   - CRM Integrations: 3 endpoints (test, list/create, by-id) - Epic #247
 #   - CRM Contacts: 3 endpoints (create, search, by-id)
 #   - CRM Companies: 3 endpoints (create, search, by-id)
-#   - LinkedIn Connection: 6 endpoints (availability, initialize, status, verify, disconnect, profile)
+#   - LinkedIn Connection: 7 endpoints (availability, initialize, status, verify, disconnect, profile, poll)
 #   - Organizations: 2 endpoints
 #   - API Keys: 2 endpoints
+#   - User Management: 9 endpoints (me, members, invites, accept, pending)
+#   - Workspaces: 7 endpoints (list, get, create, update, delete, members)
+#   - Teams: 7 endpoints (list, get, my, create, update, delete, members)
 #   - Status: 1 endpoint
 #
 # NOT exposed (internal only):
@@ -694,6 +697,24 @@ routes:
           replace:
             uri: /api/v1/linkedin-connection/profile
 
+  # GET /v1/linkedin-connection/poll/{sessionId} -> Poll login status
+  - name: linkedin-connection-poll
+    service: abmdev-backend
+    paths:
+      - ~/v1/linkedin-connection/poll/(?<sessionId>[^/]+)$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - linkedin
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/linkedin-connection/poll/$(uri_captures.sessionId)
+
 # ===========================================
 # Routes - API Keys (100 req/min)
 # ===========================================
@@ -774,6 +795,547 @@ routes:
         config:
           replace:
             uri: /api/v1/organizations/current/usage
+
+# ===========================================
+# Routes - User Management (Team Settings)
+# ===========================================
+
+  # GET /v1/users/me -> Get current user's membership
+  - name: users-me
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/me$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - users
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/me
+
+  # GET /v1/users/members -> List organization members
+  - name: users-members-list
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/members$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - users
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/members
+
+  # PATCH /v1/users/members/{userId}/role -> Update member role
+  - name: users-member-role
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/members/(?<userId>[^/]+)/role$
+    methods:
+      - PATCH
+    strip_path: false
+    tags:
+      - users
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/members/$(uri_captures.userId)/role
+
+  # DELETE /v1/users/members/{userId} -> Remove member
+  - name: users-member-delete
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/members/(?<userId>[^/]+)$
+    methods:
+      - DELETE
+    strip_path: false
+    tags:
+      - users
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/members/$(uri_captures.userId)
+
+  # GET/POST /v1/users/invites -> List/create invites
+  - name: users-invites-list-create
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/invites$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - users
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/invites
+
+  # GET/DELETE /v1/users/invites/{inviteId} -> Get/revoke specific invite
+  - name: users-invite-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/invites/(?<inviteId>[^/]+)$
+    methods:
+      - GET
+      - DELETE
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - users
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/invites/$(uri_captures.inviteId)
+
+  # POST /v1/users/invites/{inviteId}/resend -> Resend invite email
+  - name: users-invite-resend
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/invites/(?<inviteId>[^/]+)/resend$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - users
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/invites/$(uri_captures.inviteId)/resend
+
+  # POST /v1/users/invites/accept -> Accept invitation
+  - name: users-invite-accept
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/invites/accept$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 300
+    tags:
+      - users
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/invites/accept
+
+  # GET /v1/users/invites/pending -> Get pending invites for current user
+  - name: users-invites-pending
+    service: abmdev-backend
+    paths:
+      - ~/v1/users/invites/pending$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 300
+    tags:
+      - users
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/users/invites/pending
+
+# ===========================================
+# Routes - Workspaces (Authenticated)
+# ===========================================
+
+  # GET /v1/workspaces - List all workspaces for organization
+  - name: workspaces-list
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces
+
+  # POST /v1/workspaces - Create a new workspace
+  - name: workspaces-create
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces
+
+  # GET /v1/workspaces/default - Get default workspace
+  - name: workspaces-default
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces/default$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 300
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces/default
+
+  # GET /v1/workspaces/{id} - Get workspace by ID
+  - name: workspaces-get-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])
+
+  # PUT /v1/workspaces/{id} - Update workspace
+  - name: workspaces-update
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)$
+    methods:
+      - PUT
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])
+
+  # DELETE /v1/workspaces/{id} - Archive workspace
+  - name: workspaces-archive
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)$
+    methods:
+      - DELETE
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])
+
+  # GET /v1/workspaces/{id}/members - List workspace members
+  - name: workspaces-members-list
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)/members$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])/members
+
+  # POST /v1/workspaces/{id}/members - Add workspace member
+  - name: workspaces-members-add
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)/members$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])/members
+
+  # DELETE /v1/workspaces/{id}/members/{userId} - Remove workspace member
+  - name: workspaces-members-remove
+    service: abmdev-backend
+    paths:
+      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)/members/(?<userId>[^/]+)$
+    methods:
+      - DELETE
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - workspaces
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])/members/$(uri_captures["userId"])
+
+# ===========================================
+# Routes - Teams (Authenticated)
+# ===========================================
+
+  # GET /v1/teams - List all teams for organization
+  - name: teams-list
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams
+
+  # POST /v1/teams - Create a new team
+  - name: teams-create
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams
+
+  # GET /v1/teams/my - Get current user's teams
+  - name: teams-my
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/my$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 300
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/my
+
+  # GET /v1/teams/{id} - Get team by ID
+  - name: teams-get-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/(?<teamId>[0-9a-f-]+)$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/$(uri_captures["teamId"])
+
+  # PUT /v1/teams/{id} - Update team
+  - name: teams-update
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/(?<teamId>[0-9a-f-]+)$
+    methods:
+      - PUT
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/$(uri_captures["teamId"])
+
+  # DELETE /v1/teams/{id} - Archive team
+  - name: teams-archive
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/(?<teamId>[0-9a-f-]+)$
+    methods:
+      - DELETE
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/$(uri_captures["teamId"])
+
+  # GET /v1/teams/{id}/members - List team members
+  - name: teams-members-list
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/$(uri_captures["teamId"])/members
+
+  # POST /v1/teams/{id}/members - Add team member
+  - name: teams-members-add
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/$(uri_captures["teamId"])/members
+
+  # DELETE /v1/teams/{id}/members/{userId} - Remove team member
+  - name: teams-members-remove
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members/(?<userId>[^/]+)$
+    methods:
+      - DELETE
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/$(uri_captures["teamId"])/members/$(uri_captures["userId"])
+
+  # PATCH /v1/teams/{id}/members/{userId}/role - Update member role
+  - name: teams-members-update-role
+    service: abmdev-backend
+    paths:
+      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members/(?<userId>[^/]+)/role$
+    methods:
+      - PATCH
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - teams
+      - authenticated
+      - rate-limit-write
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/teams/$(uri_captures["teamId"])/members/$(uri_captures["userId"])/role
 
 # ===========================================
 # Routes - Status (No rate limit)
