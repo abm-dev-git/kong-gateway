@@ -6,8 +6,8 @@ _transform: true
 #
 # This file defines services, routes, plugins, and consumers.
 #
-# Route Summary (83 total):
-#   - Public: 3 (root, health, webhooks)
+# Route Summary (95 total):
+#   - Public: 4 (root, health, clerk webhook, stripe webhook)
 #   - Enrichment API: 9 endpoints (core product)
 #   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
 #   - CRM Integrations: 3 endpoints (test, list/create, by-id) - Epic #247
@@ -19,6 +19,7 @@ _transform: true
 #   - User Management: 9 endpoints (me, members, invites, accept, pending)
 #   - Workspaces: 7 endpoints (list, get, create, update, delete, members)
 #   - Teams: 7 endpoints (list, get, my, create, update, delete, members)
+#   - Billing: 11 endpoints (packages, credits, checkout, payments, invoices, billing-details)
 #   - Status: 1 endpoint
 #
 # NOT exposed (internal only):
@@ -1336,6 +1337,218 @@ routes:
         config:
           replace:
             uri: /api/v1/teams/$(uri_captures["teamId"])/members/$(uri_captures["userId"])/role
+
+# ===========================================
+# Routes - Billing (Credits & Payments)
+# ===========================================
+
+  # GET /v1/billing/packages -> Public endpoint (no auth needed)
+  - name: billing-packages
+    service: abmdev-public
+    paths:
+      - ~/v1/billing/packages$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - billing
+      - public
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/packages
+
+  # GET /v1/billing/credits -> Get credit balance
+  - name: billing-credits
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/credits$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/credits
+
+  # GET /v1/billing/credits/history -> Get credit transaction history
+  - name: billing-credits-history
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/credits/history$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 300
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/credits/history
+
+  # GET /v1/billing/subscription -> Get subscription details
+  - name: billing-subscription
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/subscription$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/subscription
+
+  # POST /v1/billing/checkout -> Create Stripe checkout session
+  - name: billing-checkout
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/checkout$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-strict
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/checkout
+
+  # GET /v1/billing/checkout/{sessionId}/status -> Get checkout status
+  - name: billing-checkout-status
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/checkout/(?<sessionId>[^/]+)/status$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/checkout/$(uri_captures.sessionId)/status
+
+  # GET /v1/billing/payments -> Get payment history
+  - name: billing-payments
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/payments$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/payments
+
+  # GET /v1/billing/invoices -> List invoices
+  - name: billing-invoices
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/invoices$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/invoices
+
+  # GET /v1/billing/invoices/{id} -> Get specific invoice
+  - name: billing-invoice-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/invoices/(?<invoiceId>[^/]+)$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/invoices/$(uri_captures.invoiceId)
+
+  # PUT /v1/billing/billing-details -> Update billing details
+  - name: billing-details-update
+    service: abmdev-backend
+    paths:
+      - ~/v1/billing/billing-details$
+    methods:
+      - PUT
+    strip_path: false
+    tags:
+      - billing
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/billing-details
+
+# ===========================================
+# Routes - Webhooks (Stripe)
+# ===========================================
+
+  # POST /webhooks/stripe -> Stripe webhook (public, signature verified by backend)
+  - name: webhooks-stripe
+    service: abmdev-public
+    paths:
+      - /webhooks/stripe
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - public
+      - webhook
+      - stripe
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/stripe
 
 # ===========================================
 # Routes - Status (No rate limit)
