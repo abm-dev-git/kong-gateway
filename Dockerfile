@@ -1,0 +1,10 @@
+FROM kong:3.5
+COPY kong.yml /usr/local/kong/declarative/kong.yml
+ENV KONG_DATABASE=off
+ENV KONG_DECLARATIVE_CONFIG=/usr/local/kong/declarative/kong.yml
+ENV KONG_PROXY_LISTEN=0.0.0.0:8000
+ENV KONG_ADMIN_LISTEN=127.0.0.1:8001
+ENV KONG_STATUS_LISTEN=0.0.0.0:8100
+ENV KONG_LOG_LEVEL=warn
+ENV KONG_PROXY_ACCESS_LOG=/dev/stdout
+ENV KONG_PROXY_ERROR_LOG=/dev/stderr
