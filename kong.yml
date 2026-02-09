@@ -32,7 +32,7 @@ _transform: true
 services:
   # Main ABM.dev Backend API (for authenticated routes)
   - name: abmdev-backend
-    url: http://api-gateway.railway.internal:8080
+    url: http://abm-api.railway.internal:8080
     connect_timeout: 60000
     write_timeout: 60000
     read_timeout: 120000
@@ -44,7 +44,7 @@ services:
 
   # Public Backend API (no auth required)
   - name: abmdev-public
-    url: http://api-gateway.railway.internal:8080
+    url: http://abm-api.railway.internal:8080
     connect_timeout: 60000
     write_timeout: 60000
     read_timeout: 120000
