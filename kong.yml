@@ -6,7 +6,7 @@ _transform: true
 #
 # This file defines services, routes, plugins, and consumers.
 #
-# Route Summary (95 total):
+# Route Summary (99 total):
 #   - Public: 4 (root, health, clerk webhook, stripe webhook)
 #   - Enrichment API: 9 endpoints (core product)
 #   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
@@ -20,6 +20,7 @@ _transform: true
 #   - Workspaces: 7 endpoints (list, get, create, update, delete, members)
 #   - Teams: 7 endpoints (list, get, my, create, update, delete, members)
 #   - Billing: 11 endpoints (packages, credits, checkout, payments, invoices, billing-details)
+#   - Campaigns: 4 endpoints (list, get, preview, confirm)
 #   - Status: 1 endpoint
 #
 # NOT exposed (internal only):
@@ -108,20 +109,18 @@ routes:
       - webhook
 
 # ===========================================
-# Routes - Enrichment (20 req/min rate limit)
+# Routes - Enrichment: New API (20 req/min rate limit)
 # ===========================================
 
-  # POST /v1/enrichments -> /api/v1/enrichments
-  # Single entity enrichment (default):
-  #   { "entity_type": "person", "entity_data": { "email": "john@example.com" } }
-  # Bulk enrichment (requires explicit flag):
-  #   { "bulk": true, "entities": [ { "entity_type": "person", "entity_data": {...} }, ... ] }
+  # POST /v1/enrichments -> /api/v1/enrichments (create enrichment)
+  # GET  /v1/enrichments -> /api/v1/enrichments (list enrichments)
   - name: enrichments
     service: abmdev-backend
     paths:
       - ~/v1/enrichments$
     methods:
       - POST
+      - GET
     strip_path: false
     tags:
       - enrichment
@@ -133,30 +132,11 @@ routes:
           replace:
             uri: /api/v1/enrichments
 
-  # GET/POST /v1/enrichment/jobs -> /api/v1/enrichment/jobs
-  - name: enrichment-jobs
+  # GET/DELETE /v1/enrichments/{id} -> /api/v1/enrichments/{id}
+  - name: enrichments-by-id
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/jobs$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichment/jobs
-
-  # GET/DELETE /v1/enrichment/jobs/{jobId} -> /api/v1/enrichment/jobs/{jobId}
-  - name: enrichment-job-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)$
+      - ~/v1/enrichments/(?<id>\d+)$
     methods:
       - GET
       - DELETE
@@ -169,13 +149,13 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)
+            uri: /api/v1/enrichments/$(uri_captures.id)
 
-  # GET /v1/enrichment/jobs/{jobId}/stream -> /api/v1/enrichment/jobs/{jobId}/stream
-  - name: enrichment-job-stream
+  # GET /v1/enrichments/{id}/stream -> /api/v1/enrichments/{id}/stream (SSE)
+  - name: enrichments-stream
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)/stream$
+      - ~/v1/enrichments/(?<id>\d+)/stream$
     methods:
       - GET
     strip_path: false
@@ -187,9 +167,216 @@ routes:
       - name: request-transformer
         config:
           replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/stream
+
+  # POST /v1/enrichments/{id}/approve -> /api/v1/enrichments/{id}/approve
+  - name: enrichments-approve
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/approve$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/approve
+
+  # GET /v1/enrichments/{id}/sources -> /api/v1/enrichments/{id}/sources
+  - name: enrichments-sources
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/sources$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/sources
+
+  # GET /v1/enrichments/{id}/fields -> /api/v1/enrichments/{id}/fields
+  - name: enrichments-fields
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/fields$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/fields
+
+  # POST /v1/enrichments/batches/preview -> /api/v1/enrichments/batches/preview
+  - name: enrichments-batches-preview
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches/preview$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches/preview
+
+  # POST /v1/enrichments/batches/confirm -> /api/v1/enrichments/batches/confirm
+  - name: enrichments-batches-confirm
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches/confirm$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches/confirm
+
+  # GET /v1/enrichments/batches -> /api/v1/enrichments/batches (list batches)
+  - name: enrichments-batches-list
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches
+
+  # GET /v1/enrichments/batches/{batchId} -> /api/v1/enrichments/batches/{batchId}
+  - name: enrichments-batch-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches/(?<batchId>[0-9a-f-]+)$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)
+
+  # POST /v1/enrichments/batches/{batchId}/approve -> /api/v1/enrichments/batches/{batchId}/approve
+  - name: enrichments-batch-approve
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches/(?<batchId>[0-9a-f-]+)/approve$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)/approve
+
+# ===========================================
+# Routes - Enrichment: Legacy (DEPRECATED - kept for backwards compatibility)
+# ===========================================
+
+  # DEPRECATED: GET/POST /v1/enrichment/jobs -> /api/v1/enrichment/jobs
+  - name: enrichment-jobs
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+      - deprecated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs
+
+  # DEPRECATED: GET/DELETE /v1/enrichment/jobs/{jobId} -> /api/v1/enrichment/jobs/{jobId}
+  - name: enrichment-job-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)$
+    methods:
+      - GET
+      - DELETE
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - rate-limit-enrichment
+      - deprecated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)
+
+  # DEPRECATED: GET /v1/enrichment/jobs/{jobId}/stream -> /api/v1/enrichment/jobs/{jobId}/stream
+  - name: enrichment-job-stream
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)/stream$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+      - streaming
+      - deprecated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
             uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)/stream
 
-  # POST /v1/enrichment/preflight -> /api/v1/enrichment/preflight
+  # DEPRECATED: POST /v1/enrichment/preflight -> /api/v1/enrichment/preflight
   - name: enrichment-preflight
     service: abmdev-backend
     paths:
@@ -201,6 +388,7 @@ routes:
       - enrichment
       - authenticated
       - rate-limit-enrichment
+      - deprecated
     plugins:
       - name: request-transformer
         config:
@@ -1549,6 +1737,85 @@ routes:
         config:
           replace:
             uri: /api/v1/webhooks/stripe
+
+# ===========================================
+# Routes - Campaigns (Enrichment Campaigns)
+# ===========================================
+
+  # GET /v1/campaigns -> List campaigns
+  - name: campaigns-list
+    service: abmdev-backend
+    paths:
+      - ~/v1/campaigns$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - campaigns
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/campaigns
+
+  # GET /v1/campaigns/{id} -> Get campaign by ID
+  - name: campaigns-get-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)$
+    methods:
+      - GET
+    strip_path: false
+    regex_priority: 100
+    tags:
+      - campaigns
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/campaigns/$(uri_captures.campaignId)
+
+  # POST /v1/campaigns/preview -> Preview campaign before creation
+  - name: campaigns-preview
+    service: abmdev-backend
+    paths:
+      - ~/v1/campaigns/preview$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - campaigns
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/campaigns/preview
+
+  # POST /v1/campaigns/confirm -> Confirm and start campaign
+  - name: campaigns-confirm
+    service: abmdev-backend
+    paths:
+      - ~/v1/campaigns/confirm$
+    methods:
+      - POST
+    strip_path: false
+    regex_priority: 200
+    tags:
+      - campaigns
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/campaigns/confirm
 
 # ===========================================
 # Routes - Status (No rate limit)
