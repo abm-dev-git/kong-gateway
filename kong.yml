@@ -2050,10 +2050,10 @@ plugins:
     config:
       # Default global limit
       minute: 1000
-      # Use Redis for distributed rate limiting
+      # Use Redis for distributed rate limiting (Railway internal URL)
       policy: redis
-      redis_host: 127.0.0.1
-      redis_port: 6380
+      redis_host: redis.railway.internal
+      redis_port: 6379
       redis_timeout: 2000
       # Limit by x-org-id header (set by request-transformer in Issue #8)
       limit_by: header
@@ -2087,15 +2087,15 @@ consumers:
 # ===========================================
 # JWT Secrets (Clerk JWKS Configuration)
 # ===========================================
-# Note: Kong OSS doesn't support JWKS URL directly in declarative config.
-# The JWT public key must be added via Admin API after startup:
+# Note: Kong OSS in DB-less mode requires JWT credentials to be added via Admin API.
+# This will be done automatically during deployment startup.
 #
-# curl -X POST http://localhost:8081/consumers/clerk-jwt/jwt \
-#   -d "algorithm=RS256" \
-#   -d "key=https://your-clerk-domain.clerk.accounts.dev" \
-#   -d "rsa_public_key=<PEM encoded public key>"
+# Production issuer: https://clerk.abm.dev
+# JWKS URL: https://clerk.abm.dev/.well-known/jwks.json
 #
-# Alternatively, fetch from Clerk JWKS endpoint:
-# curl https://your-clerk-domain.clerk.accounts.dev/.well-known/jwks.json
+# The setup script will:
+# 1. Fetch the public key from JWKS endpoint
+# 2. Add JWT credential to clerk-jwt consumer via Admin API
+# 3. Verify JWT authentication is working
 #
-# For automated setup, use scripts/setup-clerk-jwt.sh
+# For Railway deployment, this is handled by the startup script.
