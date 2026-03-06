@@ -17,6 +17,8 @@ ENV KONG_STATUS_LISTEN=0.0.0.0:8100
 ENV KONG_LOG_LEVEL=warn
 ENV KONG_PROXY_ACCESS_LOG=/dev/stdout
 ENV KONG_PROXY_ERROR_LOG=/dev/stderr
+ENV KONG_REDIS_HOST=redis.railway.internal
+ENV KONG_REDIS_PORT=6379
 ENV PORT=8000
 
 # Create startup script that runs Kong and configures JWT

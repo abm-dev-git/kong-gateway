@@ -2052,8 +2052,8 @@ plugins:
       minute: 1000
       # Use Redis for distributed rate limiting (Railway internal URL)
       policy: redis
-      redis_host: redis.railway.internal
-      redis_port: 6379
+      redis_host: ${KONG_REDIS_HOST:-redis.railway.internal}
+      redis_port: ${KONG_REDIS_PORT:-6379}
       redis_timeout: 2000
       # Limit by x-org-id header (set by request-transformer in Issue #8)
       limit_by: header
@@ -2087,15 +2087,21 @@ consumers:
 # ===========================================
 # JWT Secrets (Clerk JWKS Configuration)
 # ===========================================
-# Note: Kong OSS in DB-less mode requires JWT credentials to be added via Admin API.
-# This will be done automatically during deployment startup.
-#
-# Production issuer: https://clerk.abm.dev
-# JWKS URL: https://clerk.abm.dev/.well-known/jwks.json
-#
-# The setup script will:
-# 1. Fetch the public key from JWKS endpoint
-# 2. Add JWT credential to clerk-jwt consumer via Admin API
-# 3. Verify JWT authentication is working
-#
-# For Railway deployment, this is handled by the startup script.
+jwt_secrets:
+  # Clerk JWT Consumer Credentials
+  # Production issuer: https://clerk.abm.dev
+  # Development issuer: https://magical-stag-51.clerk.accounts.dev
+  # Using development key for now since production domain is not yet configured
+  - consumer: clerk-jwt
+    key: "https://magical-stag-51.clerk.accounts.dev"
+    algorithm: "RS256"
+    rsa_public_key: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuOlaOKW5oSWJXQqYC2HG
+      yUQ2BxvTxu73Faq+ICg9LXby1VNrKpbY1yUc94MXR9VEVodSlm7TX0Ahp2mQFyo/
+      ZxUy4eM0FU7JcGiTHjge3ru/GzM+lrYCu1lsAusrt7+CRxDcdmmlrX0Dza7w2V26
+      qSxCrmrMvTEKM9bFF2PMxsyvH0Q6Yp3VhXLZPohCb0aZus30oaiQZL7Tmuzf34bZ
+      REX91bL40NJqz9WTOSqkUBttYexwcAberdFm8u3sOlEeqpSBx4EbILPqs4hMZF49
+      Yn66LhgPoLa3CSm0kWSEV5k0QJoate1iGHTfP1FrI6aRdXnx1sW5+Fi98SERgoNw
+      3wIDAQAB
+      -----END PUBLIC KEY-----
