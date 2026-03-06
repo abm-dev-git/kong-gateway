@@ -1,7 +1,17 @@
+# Railway configuration for Kong Gateway
+# Copy to kong-gateway/railway.toml
+
 [build]
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# Kong health endpoint
+healthcheckPath = "/status"
 healthcheckTimeout = 60
+
+# Kong should always be running
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
+
+# Kong needs more memory for 83+ routes
+# Railway will auto-allocate, but Kong typically needs 1-2GB
