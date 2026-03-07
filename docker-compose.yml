@@ -72,7 +72,7 @@ services:
 
       # Proxy configuration (use different ports to avoid conflicts)
       KONG_PROXY_LISTEN: 0.0.0.0:8080, 0.0.0.0:8443 ssl
-      KONG_ADMIN_LISTEN: 0.0.0.0:8081
+      KONG_ADMIN_LISTEN: 127.0.0.1:8081
 
       # Logging
       KONG_PROXY_ACCESS_LOG: /dev/stdout
