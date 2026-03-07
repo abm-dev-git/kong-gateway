@@ -1,5 +1,8 @@
 FROM kong:3.5
 
+# Switch to root for package installation (Kong image defaults to 'kong' user)
+USER root
+
 # Install dependencies for JWT setup
 RUN apt-get update && apt-get install -y curl jq nodejs && rm -rf /var/lib/apt/lists/*
 
