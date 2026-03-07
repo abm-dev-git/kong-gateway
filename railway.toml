@@ -5,9 +5,10 @@
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Kong health endpoint - use status API route
-healthcheckPath = "/v1/status"
-healthcheckTimeout = 120
+# Disable healthcheck temporarily to allow Kong to start
+# Railway will detect if Kong process is running on port 8000
+# healthcheckPath = "/v1/status"
+# healthcheckTimeout = 120
 
 # Kong should always be running
 restartPolicyType = "ON_FAILURE"
