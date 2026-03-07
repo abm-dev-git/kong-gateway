@@ -2050,11 +2050,9 @@ plugins:
     config:
       # Default global limit
       minute: 1000
-      # Use Redis for distributed rate limiting (Railway internal URL)
-      policy: redis
-      redis_host: ${KONG_REDIS_HOST:-redis.railway.internal}
-      redis_port: ${KONG_REDIS_PORT:-6379}
-      redis_timeout: 2000
+      # Use local (in-memory) rate limiting temporarily until Redis is fixed
+      # TODO: Switch back to Redis when Redis service is working
+      policy: local
       # Limit by x-org-id header (set by request-transformer in Issue #8)
       limit_by: header
       header_name: x-org-id
