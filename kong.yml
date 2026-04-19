@@ -1083,6 +1083,27 @@ routes:
           replace:
             uri: /api/v1/organizations/current/usage
 
+  # POST /v1/organizations/signup -> public (Clerk JWT validated by backend)
+  # New-user bootstrap: no org_id claim yet, so must bypass backend key-auth +
+  # post-function x-org-id injection. Routed via abmdev-public; backend's
+  # ClerkJwtAuthenticationMiddleware validates the Bearer token directly.
+  - name: organizations-signup
+    service: abmdev-public
+    paths:
+      - ~/v1/organizations/signup$
+    methods:
+      - POST
+      - OPTIONS
+    strip_path: false
+    tags:
+      - organization
+      - public
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/organizations/signup
+
 # ===========================================
 # Routes - User Management (Team Settings)
 # ===========================================
