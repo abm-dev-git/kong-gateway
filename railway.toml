@@ -1,14 +1,16 @@
 # Railway configuration for Kong Gateway
-# Copy to kong-gateway/railway.toml
 
 [build]
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Disable healthcheck temporarily to allow Kong to start
-# Railway will detect if Kong process is running on port 8000
-# healthcheckPath = "/v1/status"
-# healthcheckTimeout = 120
+# /health is defined in kong.yml as a public (unauthenticated) route on
+# abmdev-public, proxied through port 8000. Railway probes on the proxy port.
+# If the backend is down, Kong will still respond to this route with a 502/504
+# which Railway will treat as unhealthy — that is the intended behaviour; Kong
+# cannot serve traffic without its upstream.
+healthcheckPath = "/health"
+healthcheckTimeout = 120
 
 # Kong should always be running
 restartPolicyType = "ON_FAILURE"
