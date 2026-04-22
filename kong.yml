@@ -3382,7 +3382,13 @@ consumers:
 # ===========================================
 # JWT Secrets (Clerk JWKS Configuration)
 # ===========================================
-# Production issuer: https://clerk.abm.dev (Clerk prod instance for abm.dev)
+# Production issuer: https://abm.dev/api/clerk-proxy
+#   Clerk prod runs in proxy mode — `frontend_api_url` and `proxy_url` both
+#   resolve to https://abm.dev/api/clerk-proxy, so issued JWTs carry
+#   iss="https://abm.dev/api/clerk-proxy". Kong's JWT plugin matches the
+#   `key` field below against that `iss` claim (key_claim_name: iss), so
+#   this MUST be the proxy URL, not the clerk.abm.dev CNAME host.
+#   Verified via GET https://api.clerk.com/v1/domains (2026-04-19).
 # Dev/staging issuer: https://magical-stag-51.clerk.accounts.dev
 #
 # The public key below was fetched from Clerk prod JWKS endpoint
@@ -3395,7 +3401,7 @@ consumers:
 jwt_secrets:
   # Clerk JWT Consumer Credentials - PRODUCTION
   - consumer: clerk-jwt
-    key: "https://clerk.abm.dev"
+    key: "https://abm.dev/api/clerk-proxy"
     algorithm: "RS256"
     rsa_public_key: |
       -----BEGIN PUBLIC KEY-----

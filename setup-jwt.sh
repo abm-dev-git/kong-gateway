@@ -10,8 +10,13 @@ echo "Setting up Kong JWT authentication for Clerk..."
 # Configuration
 KONG_ADMIN_URL="http://127.0.0.1:8001"
 CONSUMER_NAME="clerk-jwt"
-ISSUER="https://clerk.abm.dev"
-JWKS_URL="https://clerk.abm.dev/.well-known/jwks.json"
+# Clerk prod runs in proxy mode: iss claim is the frontend_api_url, NOT the
+# CNAME host. Kong's JWT plugin matches `key` against the `iss` claim
+# (key_claim_name: iss in kong.yml), so this MUST be the proxy URL.
+# Verified via GET https://api.clerk.com/v1/domains (2026-04-19):
+#   frontend_api_url / proxy_url = "https://abm.dev/api/clerk-proxy"
+ISSUER="https://abm.dev/api/clerk-proxy"
+JWKS_URL="https://abm.dev/api/clerk-proxy/.well-known/jwks.json"
 
 # Wait for Kong Admin API to be available
 echo "Waiting for Kong Admin API to be ready..."
