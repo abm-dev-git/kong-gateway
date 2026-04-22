@@ -3284,40 +3284,71 @@ plugins:
       # If JWT validation fails, fall through to key-auth plugin
       anonymous: anonymous
 
-  # Key Authentication Plugin (for authenticated service only)
-  # Uses anonymous consumer fallback for Either/Or auth pattern
-  - name: key-auth
+  # ============================================================================
+  # API KEY AUTH: Delegated to backend (Product Hunt launch 2026-04-20)
+  # ============================================================================
+  # The key-auth Kong plugin + request-termination plugin were REMOVED.
+  # Reason: Kong runs DB-less here, so key-auth can only validate
+  # credentials declared statically in kong.yml. Dynamic API keys created
+  # via POST /v1/api-keys land in halo.api_keys but are invisible to Kong,
+  # which caused 401s for every customer-created key.
+  #
+  # Backend is now the single source of truth for API key validation:
+  #   - Shared.Authentication/Middleware/ApiKeyAuthenticationMiddleware.cs
+  #   - Validates x-api-key / "Authorization: Bearer abmdev_*" against
+  #     halo.api_keys via BCrypt. Rejects unknown / expired / revoked keys
+  #     with 401.
+  #
+  # Kong still handles: TLS termination, routing, path rewriting, rate
+  # limiting (per x-org-id), CORS, and JWT validation (for Clerk browser
+  # traffic — so bad JWTs fail fast at the edge). The JWT plugin keeps its
+  # `anonymous: anonymous` fallback — request rejection for truly-anonymous
+  # traffic now happens inside the pre-function below (which has access to
+  # every auth header, unlike request-termination).
+  - name: pre-function
     service: abmdev-backend
     tags:
       - authentication
-      - api-key
+      - backend-delegated-auth
     config:
-      # Header and query param names to check for API key
-      key_names:
-        - x-api-key
-        - apikey
-      # Check in both header and query
-      key_in_header: true
-      key_in_query: true
-      key_in_body: false
-      # Don't hide the credential from upstream
-      hide_credentials: false
-      # Anonymous consumer fallback (enables Either/Or auth)
-      # If API key validation fails, fall through to anonymous consumer
-      anonymous: anonymous
+      access:
+        - |
+          -- Normalise API key location so the backend middleware always
+          -- finds it on x-api-key (even if the client sent `apikey` or
+          -- an `Authorization: Bearer abmdev_…` header).
+          local api_key = kong.request.get_header("x-api-key")
+          local apikey  = kong.request.get_header("apikey")
+          local auth    = kong.request.get_header("Authorization")
+          local has_bearer_apikey = false
+          local has_bearer_jwt = false
+          if auth and string.sub(auth, 1, 14) == "Bearer abmdev_" then
+            has_bearer_apikey = true
+          elseif auth and string.sub(auth, 1, 7) == "Bearer " then
+            has_bearer_jwt = true
+          end
 
-  # Request Termination Plugin (for anonymous consumer on authenticated service)
-  # Rejects requests that fall through to anonymous consumer
-  # This ensures unauthenticated requests get a proper 401 response
-  - name: request-termination
-    service: abmdev-backend
-    consumer: anonymous
-    tags:
-      - authentication
-      - termination
-    config:
-      status_code: 401
-      message: "Authentication required. Provide JWT Bearer token or x-api-key header."
+          if (not api_key) and apikey then
+            kong.service.request.set_header("x-api-key", apikey)
+            api_key = apikey
+          end
+          if (not api_key) and has_bearer_apikey then
+            kong.service.request.set_header("x-api-key", string.sub(auth, 8))
+            api_key = "bearer-apikey"
+            -- Strip the Bearer abmdev_ value from the Authorization
+            -- header so Kong's JWT plugin does not try to validate it
+            -- as a JWT (which it can never be). The backend still
+            -- authenticates the request via x-api-key.
+            kong.service.request.clear_header("Authorization")
+          end
+
+          -- Truly-anonymous request (no JWT and no API key of any form) →
+          -- reject at the edge. Requests WITH an API key OR a Bearer JWT
+          -- pass through; backend / JWT plugin validate.
+          if (not api_key) and (not has_bearer_jwt) then
+            return kong.response.exit(401, {
+              message = "Authentication required. Provide JWT Bearer token or x-api-key header."
+            })
+          end
 
 # ===========================================
 # Rate Limiting Plugins
