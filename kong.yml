@@ -140,7 +140,7 @@ routes:
   - name: enrichments-by-id
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>\d+)$
+      - ~/v1/enrichments/(?<id>[^/]+)$
     methods:
       - GET
       - DELETE
@@ -159,7 +159,7 @@ routes:
   - name: enrichments-stream
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>\d+)/stream$
+      - ~/v1/enrichments/(?<id>[^/]+)/stream$
     methods:
       - GET
     strip_path: false
@@ -177,7 +177,7 @@ routes:
   - name: enrichments-approve
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>\d+)/approve$
+      - ~/v1/enrichments/(?<id>[^/]+)/approve$
     methods:
       - POST
     strip_path: false
@@ -195,7 +195,7 @@ routes:
   - name: enrichments-sources
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>\d+)/sources$
+      - ~/v1/enrichments/(?<id>[^/]+)/sources$
     methods:
       - GET
     strip_path: false
@@ -213,7 +213,7 @@ routes:
   - name: enrichments-fields
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>\d+)/fields$
+      - ~/v1/enrichments/(?<id>[^/]+)/fields$
     methods:
       - GET
     strip_path: false
@@ -377,7 +377,7 @@ routes:
   - name: enrichments-writeback-preview
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>\d+)/writeback-preview$
+      - ~/v1/enrichments/(?<id>[^/]+)/writeback-preview$
     methods:
       - GET
     strip_path: false
@@ -396,7 +396,7 @@ routes:
   - name: enrichments-export-excel
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>\d+)/export/excel$
+      - ~/v1/enrichments/(?<id>[^/]+)/export/excel$
     methods:
       - GET
     strip_path: false
