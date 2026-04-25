@@ -1869,7 +1869,7 @@ routes:
             uri: /api/v1/billing/billing-details
 
 # ===========================================
-# Routes - Webhooks (Stripe)
+# Routes - Webhooks (Inbound + Outbound)
 # ===========================================
 
   # POST /webhooks/stripe -> Stripe webhook (public, signature verified by backend)
@@ -1889,6 +1889,88 @@ routes:
         config:
           replace:
             uri: /api/v1/webhooks/stripe
+
+  # ---- Outbound webhook subscriptions (authenticated) ---------------------
+  # Used by Zapier polling triggers, n8n integration, and direct API customers
+  # who want HTTP callbacks for enrichment.completed, campaign.completed, etc.
+
+  # GET /v1/webhooks/subscriptions -> List subscriptions for the org
+  # POST /v1/webhooks/subscriptions -> Create a new subscription
+  - name: webhooks-subscriptions
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/subscriptions$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/subscriptions
+
+  # GET    /v1/webhooks/subscriptions/{id} -> Get one
+  # PATCH  /v1/webhooks/subscriptions/{id} -> Update one
+  # DELETE /v1/webhooks/subscriptions/{id} -> Delete one
+  - name: webhooks-subscription-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/subscriptions/(?<id>[^/]+)$
+    methods:
+      - GET
+      - PATCH
+      - DELETE
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/subscriptions/$(uri_captures.id)
+
+  # GET /v1/webhooks/events -> Polling endpoint (Zapier/n8n/Clay tail of recent events)
+  - name: webhooks-events
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/events$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/events
+
+  # GET /v1/webhooks/event-types -> List supported event types (catalog)
+  - name: webhooks-event-types
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/event-types$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+      - rate-limit-standard
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/event-types
 
 # ===========================================
 # Routes - Campaigns (Enrichment Campaigns)
