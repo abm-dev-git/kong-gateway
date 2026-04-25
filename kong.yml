@@ -100,6 +100,38 @@ routes:
       - public
       - health
 
+  # Public OpenAPI spec — required for n8n auto-import, Postman collection
+  # generation, Clay integration discovery, and any third-party tool that
+  # consumes our REST API.  Returns the same Swagger 3.0 JSON as the local
+  # /swagger/v1/swagger.json route on the backend.
+  - name: openapi-spec
+    service: abmdev-public
+    paths:
+      - /swagger/v1/swagger.json
+      - /openapi.json
+      - /openapi/v1.json
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - public
+      - openapi
+      - docs
+
+  # Swagger UI + /docs redirect — public-facing API documentation
+  # rendered as an interactive Swagger UI page.
+  - name: swagger-ui
+    service: abmdev-public
+    paths:
+      - /swagger
+      - /docs
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - public
+      - docs
+
   # Clerk webhook (no auth, signature verified by backend)
   - name: webhooks-clerk
     service: abmdev-public
