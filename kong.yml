@@ -102,14 +102,15 @@ routes:
 
   # Public OpenAPI spec — required for n8n auto-import, Postman collection
   # generation, Clay integration discovery, and any third-party tool that
-  # consumes our REST API.  Returns the same Swagger 3.0 JSON as the local
-  # /swagger/v1/swagger.json route on the backend.
+  # consumes our REST API.  Backend serves the spec at /swagger/v1/swagger.json
+  # (ASP.NET Core convention); this route forwards the path unchanged.
+  # Note: /openapi.json and /openapi/v1.json aliases were considered but
+  # would require a request-transformer to rewrite the path, since Kong
+  # forwards as-is and the backend doesn't serve those URLs.
   - name: openapi-spec
     service: abmdev-public
     paths:
       - /swagger/v1/swagger.json
-      - /openapi.json
-      - /openapi/v1.json
     methods:
       - GET
     strip_path: false
