@@ -92,7 +92,7 @@ Kong routes requests to the ABM.dev backend API:
 | Kong Path | Backend Path | Auth Required | Rate Limit |
 |-----------|--------------|---------------|------------|
 | `/health` | `/health` | No | None |
-| `/v1/enrichment/*` | `/api/v1/enrichment/*` | Yes | 20/min |
+| `/v1/enrichments/*` | `/api/v1/enrichments/*` | Yes | 20/min |
 | `/v1/linkedin-connection/*` | `/api/v1/linkedin-connection/*` | Yes | 100/min |
 | `/v1/hubspot/*` | `/api/v1/hubspot/*` | Yes | 100/min |
 | `/v1/api-keys/*` | `/api/v1/ApiKeys/*` | Yes | 100/min |
@@ -136,7 +136,7 @@ curl http://localhost:8081/plugins | jq
 ```bash
 # Should fail after 20 requests/minute for enrichment routes
 for i in {1..25}; do
-  curl -H "x-api-key: test" http://localhost:8080/v1/enrichment/entities
+  curl -H "x-api-key: test" http://localhost:8080/v1/enrichments/entities
 done
 ```
 

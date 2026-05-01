@@ -132,4 +132,4 @@ echo "  curl $KONG_ADMIN_URL/plugins | jq '.data[] | select(.name==\"rate-limiti
 echo ""
 echo "Test rate limiting:"
 echo "  # Hit endpoint rapidly to trigger rate limit"
-echo "  for i in {1..25}; do curl -H 'x-api-key: test' -H 'x-org-id: org_123' http://localhost:8080/v1/enrichment/entities -w '%{http_code}\n' -o /dev/null -s; done"
+echo "  for i in {1..25}; do curl -H 'x-api-key: test' -H 'x-org-id: org_123' http://localhost:8080/v1/enrichments/entities -w '%{http_code}\n' -o /dev/null -s; done"

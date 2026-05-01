@@ -76,7 +76,7 @@ Enrich a single entity or multiple entities in bulk.
 
 ---
 
-### GET /v1/enrichment/jobs
+### GET /v1/enrichments/jobs
 
 List enrichment jobs for your organization.
 
@@ -106,7 +106,7 @@ List enrichment jobs for your organization.
 
 ---
 
-### POST /v1/enrichment/jobs
+### POST /v1/enrichments/jobs
 
 Create a new enrichment job.
 
@@ -123,7 +123,7 @@ Create a new enrichment job.
 
 ---
 
-### GET /v1/enrichment/jobs/{jobId}
+### GET /v1/enrichments/jobs/{jobId}
 
 Get details of a specific enrichment job.
 
@@ -143,13 +143,13 @@ Get details of a specific enrichment job.
 
 ---
 
-### DELETE /v1/enrichment/jobs/{jobId}
+### DELETE /v1/enrichments/jobs/{jobId}
 
 Cancel a pending or processing job.
 
 ---
 
-### GET /v1/enrichment/jobs/{jobId}/stream
+### GET /v1/enrichments/jobs/{jobId}/stream
 
 Server-Sent Events (SSE) stream for real-time job progress.
 
@@ -164,7 +164,7 @@ data: {"job_id":"job_abc123","progress":100,"status":"completed"}
 
 ---
 
-### POST /v1/enrichment/preflight
+### POST /v1/enrichments/preflight
 
 Pre-flight analysis to estimate enrichment results before running.
 
@@ -193,11 +193,11 @@ Pre-flight analysis to estimate enrichment results before running.
 
 Manage enrichment configurations and field mappings.
 
-### GET /v1/enrichment/configurations
+### GET /v1/enrichments/configurations
 
 List all enrichment configurations.
 
-### POST /v1/enrichment/configurations
+### POST /v1/enrichments/configurations
 
 Create a new enrichment configuration.
 
@@ -214,37 +214,37 @@ Create a new enrichment configuration.
 }
 ```
 
-### GET /v1/enrichment/configurations/{configId}
+### GET /v1/enrichments/configurations/{configId}
 
 Get a specific configuration.
 
-### PUT /v1/enrichment/configurations/{configId}
+### PUT /v1/enrichments/configurations/{configId}
 
 Update a configuration.
 
-### DELETE /v1/enrichment/configurations/{configId}
+### DELETE /v1/enrichments/configurations/{configId}
 
 Delete a configuration.
 
 ---
 
-### GET /v1/enrichment/field-mappings
+### GET /v1/enrichments/field-mappings
 
 List field mappings for your organization.
 
-### POST /v1/enrichment/field-mappings
+### POST /v1/enrichments/field-mappings
 
 Create a new field mapping.
 
-### GET /v1/enrichment/field-mappings/{mappingId}
+### GET /v1/enrichments/field-mappings/{mappingId}
 
 Get a specific field mapping.
 
-### PUT /v1/enrichment/field-mappings/{mappingId}
+### PUT /v1/enrichments/field-mappings/{mappingId}
 
 Update a field mapping.
 
-### DELETE /v1/enrichment/field-mappings/{mappingId}
+### DELETE /v1/enrichments/field-mappings/{mappingId}
 
 Delete a field mapping.
 

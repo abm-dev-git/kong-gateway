@@ -448,11 +448,11 @@ routes:
 # Routes - Enrichment: Legacy (DEPRECATED - kept for backwards compatibility)
 # ===========================================
 
-  # DEPRECATED: GET/POST /v1/enrichment/jobs -> /api/v1/enrichment/jobs
+  # DEPRECATED: GET/POST /v1/enrichments/jobs -> /api/v1/enrichments/jobs
   - name: enrichment-jobs
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/jobs$
+      - ~/v1/enrichments/jobs$
     methods:
       - GET
       - POST
@@ -466,13 +466,13 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/jobs
+            uri: /api/v1/enrichments/jobs
 
-  # DEPRECATED: GET/DELETE /v1/enrichment/jobs/{jobId} -> /api/v1/enrichment/jobs/{jobId}
+  # DEPRECATED: GET/DELETE /v1/enrichments/jobs/{jobId} -> /api/v1/enrichments/jobs/{jobId}
   - name: enrichment-job-by-id
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)$
+      - ~/v1/enrichments/jobs/(?<jobId>[^/]+)$
     methods:
       - GET
       - DELETE
@@ -486,13 +486,13 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)
+            uri: /api/v1/enrichments/jobs/$(uri_captures.jobId)
 
-  # DEPRECATED: GET /v1/enrichment/jobs/{jobId}/stream -> /api/v1/enrichment/jobs/{jobId}/stream
+  # DEPRECATED: GET /v1/enrichments/jobs/{jobId}/stream -> /api/v1/enrichments/jobs/{jobId}/stream
   - name: enrichment-job-stream
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/jobs/(?<jobId>[^/]+)/stream$
+      - ~/v1/enrichments/jobs/(?<jobId>[^/]+)/stream$
     methods:
       - GET
     strip_path: false
@@ -505,13 +505,13 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/jobs/$(uri_captures.jobId)/stream
+            uri: /api/v1/enrichments/jobs/$(uri_captures.jobId)/stream
 
-  # DEPRECATED: POST /v1/enrichment/preflight -> /api/v1/enrichment/preflight
+  # DEPRECATED: POST /v1/enrichments/preflight -> /api/v1/enrichments/preflight
   - name: enrichment-preflight
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/preflight$
+      - ~/v1/enrichments/preflight$
     methods:
       - POST
     strip_path: false
@@ -524,7 +524,7 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/preflight
+            uri: /api/v1/enrichments/preflight
 
 # ===========================================
 # Routes - Configuration (100 req/min rate limit)
@@ -569,11 +569,11 @@ routes:
           replace:
             uri: /api/v1/enrichment-config/$(uri_captures.configId)
 
-  # GET/POST /v1/enrichment/field-mappings -> /api/v1/enrichment/field-mappings
+  # GET/POST /v1/enrichments/field-mappings -> /api/v1/enrichments/field-mappings
   - name: enrichment-field-mappings
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/field-mappings$
+      - ~/v1/enrichments/field-mappings$
     methods:
       - GET
       - POST
@@ -586,13 +586,13 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/field-mappings
+            uri: /api/v1/enrichments/field-mappings
 
-  # GET/PUT/DELETE /v1/enrichment/field-mappings/{mappingId}
+  # GET/PUT/DELETE /v1/enrichments/field-mappings/{mappingId}
   - name: enrichment-field-mapping-by-id
     service: abmdev-backend
     paths:
-      - ~/v1/enrichment/field-mappings/(?<mappingId>[^/]+)$
+      - ~/v1/enrichments/field-mappings/(?<mappingId>[^/]+)$
     methods:
       - GET
       - PUT
@@ -606,7 +606,7 @@ routes:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichment/field-mappings/$(uri_captures.mappingId)
+            uri: /api/v1/enrichments/field-mappings/$(uri_captures.mappingId)
 
 # ===========================================
 # Routes - CRM Configuration (api/v1/crm/config)
