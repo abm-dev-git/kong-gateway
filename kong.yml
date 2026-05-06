@@ -65,16 +65,10 @@ routes:
       - cors
       - public
 
-  # Root welcome endpoint (exact match only)
-  - name: root
-    service: abmdev-public
-    paths:
-      - ~/$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - public
+# NOTE: no `/` root route — backend has no homepage handler, and a
+# non-anchored prefix path (`/`) acts as a catchall that re-exposes
+# every route the backend knows even if it's not in this file. Letting
+# `/` 404 is correct.
 
 # ===========================================
 # Routes — MINIMAL ENRICHMENT SURFACE
@@ -112,17 +106,6 @@ routes:
     regex_priority: 0
     tags:
       - cors
-      - public
-
-  # ── Public: root + health ────────────────────────────────────────────
-  - name: root
-    service: abmdev-public
-    paths:
-      - ~/$
-    methods:
-      - GET
-    strip_path: false
-    tags:
       - public
 
   - name: health
