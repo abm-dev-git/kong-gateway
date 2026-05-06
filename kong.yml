@@ -2,38 +2,26 @@ _format_version: "3.0"
 _transform: true
 
 # Kong Gateway Declarative Configuration
-# ABM.dev API Gateway - External Customer API
+# ABM.dev API Gateway — MINIMAL ENRICHMENT SURFACE
 #
-# This file defines services, routes, plugins, and consumers.
+# Public day-one surface only — campaigns / v2 / Voyager / people-finder /
+# content-gen / publishing / Slack / Teams / Notion / Webflow / etc are
+# intentionally NOT routed. See:
+#   memory:feedback_minimal_enrichment_surface
+#   docs/superpowers/plans/2026-05-04-production-readiness-launch-checklist.md
 #
-# Route Summary:
-#   - Public: 4 (root, health, clerk webhook, stripe webhook)
-#   - Enrichment API: 14 endpoints (core product)
-#   - Enrichment Config: 2 endpoints (list/create, by-id)
-#   - CRM Config: 6 endpoints (platforms, fields, mappings, translate)
-#   - CRM Integrations: 3 endpoints (test, list/create, by-id) - Epic #247
-#   - CRM Contacts: 3 endpoints (create, search, by-id)
-#   - CRM Companies: 3 endpoints (create, search, by-id)
-#   - LinkedIn Connection: 7 endpoints (availability, initialize, status, verify, disconnect, profile, poll)
-#   - LinkedIn Voyager API: 33 endpoints (profiles, companies, search, jobs, feed, posts, connections, messages)
-#   - People Finder: 7 endpoints (list, get, stream, list preview/confirm, upload, upload confirm)
-#   - Organizations: 2 endpoints
-#   - API Keys: 2 endpoints
-#   - User Management: 9 endpoints (me, members, invites, accept, pending)
-#   - Workspaces: 7 endpoints (list, get, create, update, delete, members)
-#   - Teams: 7 endpoints (list, get, my, create, update, delete, members)
-#   - Billing: 11 endpoints (packages, credits, checkout, payments, invoices, billing-details)
-#   - Campaigns: 10 endpoints (list, get, preview, confirm, stream, results, approve, writeback, delete, candidate enrichment)
-#   - Status: 1 endpoint
-#   - v2 API: 13 endpoints (enrich, search, outreach, jobs, config, account, health)
-#
-# NOT exposed (internal only):
-#   - HubSpot-specific endpoints (use generic CRM API)
-#   - Integration status checks (linkedin, hunter, hubspot)
+# Route summary (~45 routes total, was ~150):
+#   - Public:       4 (root, health, clerk webhook, stripe webhook)
+#   - Status:       1 (status — client SDK warm-up)
+#   - Auth ctx:     3 (auth/me, organizations/current, organizations/signup)
+#   - API keys:     5 (list+create, get-by-id+revoke, rotate, permanent-delete)
+#   - Enrichment:  17 (list/create/get/stream/logs/sources/fields/preview/
+#                       approve/cancel/export, batches CRUD)
+#   - Config:       4 (enrichment-config + reset, field-config + by-id)
+#   - HubSpot CRM:  4 (properties, migration preview/execute, field-mappings)
+#   - Billing:      8 (packages, credits + history, subscription, checkout,
+#                       payments, transactions, usage)
 
-# ===========================================
-# Services (Upstream APIs)
-# ===========================================
 services:
   # Main ABM.dev Backend API (for authenticated routes)
   - name: abmdev-backend
@@ -77,22 +65,53 @@ routes:
       - cors
       - public
 
-  # Root welcome endpoint (exact match only)
-  - name: root
-    service: abmdev-public
+# NOTE: no `/` root route — backend has no homepage handler, and a
+# non-anchored prefix path (`/`) acts as a catchall that re-exposes
+# every route the backend knows even if it's not in this file. Letting
+# `/` 404 is correct.
+
+# ===========================================
+# Routes — MINIMAL ENRICHMENT SURFACE
+# ===========================================
+# Only enrichment + bare basics. Less is more — see
+# memory:feedback_minimal_enrichment_surface and
+# docs/superpowers/plans/2026-05-04-production-readiness-launch-checklist.md.
+#
+# Public day-one surface:
+#   Public:        4 (root, health, clerk webhook, stripe webhook)
+#   Auth context:  3 (auth/me, organizations/current, organizations/signup)
+#   API keys:      6 (list, create, get, revoke, rotate, delete)
+#   Enrichments:   12 (list, create, get, stream, logs, sources, fields,
+#                       writeback-preview, approve, cancel, export, batches+)
+#   Billing:       9 (packages, credits, subscription, checkout, payments,
+#                      transactions, usage, credits/history, billing-details)
+#   CRM (HubSpot): 5 (properties, migration/preview, field-mappings, field-config,
+#                      enrichment-config)
+#   Status:        1 (status — for client SDK warm-up)
+#
+# NOT exposed (intentionally absent — see feedback_minimal_enrichment_surface):
+#   Campaigns, v2 API, LinkedIn Voyager API surface (33 routes), people-finder,
+#   content-generation, publishing, slack/teams/notion/webflow,
+#   linkedin-connection (Clerk-only operator endpoints), recon/post-history/
+#   GraphQL feed/deferred-queue admin/budget/cache stats.
+routes:
+  # ── CORS preflight: catch-all OPTIONS ────────────────────────────────
+  - name: cors-preflight
+    service: abmdev-backend
     paths:
-      - ~/$
+      - /
     methods:
-      - GET
+      - OPTIONS
     strip_path: false
+    regex_priority: 0
     tags:
+      - cors
       - public
 
-  # Health check endpoint
-  - name: health-check
+  - name: health
     service: abmdev-public
     paths:
-      - /health
+      - ~/health$
     methods:
       - GET
     strip_path: false
@@ -100,946 +119,108 @@ routes:
       - public
       - health
 
-  # Public OpenAPI spec — required for n8n auto-import, Postman collection
-  # generation, Clay integration discovery, and any third-party tool that
-  # consumes our REST API.  Backend serves the spec at /swagger/v1/swagger.json
-  # (ASP.NET Core convention); this route forwards the path unchanged.
-  # Note: /openapi.json and /openapi/v1.json aliases were considered but
-  # would require a request-transformer to rewrite the path, since Kong
-  # forwards as-is and the backend doesn't serve those URLs.
-  - name: openapi-spec
+  # ── Public: signed webhooks (auth = signature, not bearer) ────────────
+  - name: webhook-stripe
     service: abmdev-public
     paths:
-      - /swagger/v1/swagger.json
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - public
-      - openapi
-      - docs
-
-  # Swagger UI + /docs redirect — public-facing API documentation
-  # rendered as an interactive Swagger UI page.
-  - name: swagger-ui
-    service: abmdev-public
-    paths:
-      - /swagger
-      - /docs
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - public
-      - docs
-
-  # Clerk webhook (no auth, signature verified by backend)
-  - name: webhooks-clerk
-    service: abmdev-public
-    paths:
-      - /webhooks/clerk
+      - ~/v1/webhooks/stripe$
     methods:
       - POST
     strip_path: false
     tags:
-      - public
       - webhook
-
-# ===========================================
-# Routes - Enrichment: New API (20 req/min rate limit)
-# ===========================================
-
-  # POST /v1/enrichments -> /api/v1/enrichments (create enrichment)
-  # GET  /v1/enrichments -> /api/v1/enrichments (list enrichments)
-  - name: enrichments
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments$
-    methods:
-      - POST
-      - GET
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
+      - stripe
+      - public
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichments
+            uri: /api/v1/webhooks/stripe
 
-  # GET/DELETE /v1/enrichments/{id} -> /api/v1/enrichments/{id}
-  - name: enrichments-by-id
-    service: abmdev-backend
+  - name: webhook-clerk
+    service: abmdev-public
     paths:
-      - ~/v1/enrichments/(?<id>[^/]+)$
-    methods:
-      - GET
-      - DELETE
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/$(uri_captures.id)
-
-  # GET /v1/enrichments/{id}/stream -> /api/v1/enrichments/{id}/stream (SSE)
-  - name: enrichments-stream
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/(?<id>[^/]+)/stream$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - streaming
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/$(uri_captures.id)/stream
-
-  # POST /v1/enrichments/{id}/approve -> /api/v1/enrichments/{id}/approve
-  - name: enrichments-approve
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/(?<id>[^/]+)/approve$
+      - ~/v1/webhooks/clerk$
     methods:
       - POST
     strip_path: false
     tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
+      - webhook
+      - clerk
+      - public
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichments/$(uri_captures.id)/approve
+            uri: /api/v1/webhooks/clerk
 
-  # GET /v1/enrichments/{id}/sources -> /api/v1/enrichments/{id}/sources
-  - name: enrichments-sources
-    service: abmdev-backend
+  # ── Status (no auth, lightweight client SDK warm-up) ─────────────────
+  - name: status
+    service: abmdev-public
     paths:
-      - ~/v1/enrichments/(?<id>[^/]+)/sources$
+      - ~/v1/status$
     methods:
       - GET
     strip_path: false
     tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
+      - status
+      - public
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichments/$(uri_captures.id)/sources
+            uri: /api/v1/status
 
-  # GET /v1/enrichments/{id}/fields -> /api/v1/enrichments/{id}/fields
-  - name: enrichments-fields
+  # ── Auth context (Clerk-JWT only) ─────────────────────────────────────
+  - name: auth-me
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/(?<id>[^/]+)/fields$
+      - ~/v1/auth/me$
     methods:
       - GET
     strip_path: false
     tags:
-      - enrichment
+      - auth
       - authenticated
-      - rate-limit-enrichment
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichments/$(uri_captures.id)/fields
+            uri: /api/v1/auth/me
 
-  # POST /v1/enrichments/batches/preview -> /api/v1/enrichments/batches/preview
-  - name: enrichments-batches-preview
+  - name: organizations-current
     service: abmdev-backend
     paths:
-      - ~/v1/enrichments/batches/preview$
+      - ~/v1/organizations/current$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - organization
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/organizations/current
+
+  - name: organizations-signup
+    service: abmdev-backend
+    paths:
+      - ~/v1/organizations/signup$
     methods:
       - POST
     strip_path: false
     tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
+      - organization
+      - signup
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/enrichments/batches/preview
+            uri: /api/v1/organizations/signup
 
-  # POST /v1/enrichments/batches/confirm -> /api/v1/enrichments/batches/confirm
-  - name: enrichments-batches-confirm
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/batches/confirm$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/batches/confirm
-
-  # GET /v1/enrichments/batches -> /api/v1/enrichments/batches (list batches)
-  - name: enrichments-batches-list
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/batches$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/batches
-
-  # GET /v1/enrichments/batches/{batchId} -> /api/v1/enrichments/batches/{batchId}
-  - name: enrichments-batch-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/batches/(?<batchId>[0-9a-f-]+)$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)
-
-  # POST /v1/enrichments/batches/{batchId}/approve -> /api/v1/enrichments/batches/{batchId}/approve
-  - name: enrichments-batch-approve
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/batches/(?<batchId>[0-9a-f-]+)/approve$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)/approve
-
-  # GET /v1/enrichments/batches/{batchId}/members -> /api/v1/enrichments/batches/{batchId}/members
-  - name: enrichments-batch-members
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/batches/(?<batchId>[0-9a-f-]+)/members$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)/members
-
-  # GET /v1/enrichments/batches/{batchId}/export/excel -> /api/v1/enrichments/batches/{batchId}/export/excel
-  - name: enrichments-batch-export-excel
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/batches/(?<batchId>[0-9a-f-]+)/export/excel$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)/export/excel
-
-  # GET /v1/enrichments/stats -> /api/v1/enrichments/stats
-  - name: enrichments-stats
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/stats$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/stats
-
-  # GET /v1/enrichments/{id}/writeback-preview -> /api/v1/enrichments/{id}/writeback-preview
-  - name: enrichments-writeback-preview
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/(?<id>[^/]+)/writeback-preview$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/$(uri_captures.id)/writeback-preview
-
-  # GET /v1/enrichments/{id}/export/excel -> /api/v1/enrichments/{id}/export/excel
-  - name: enrichments-export-excel
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/(?<id>[^/]+)/export/excel$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/$(uri_captures.id)/export/excel
-
-# ===========================================
-# Routes - Enrichment: Legacy (DEPRECATED - kept for backwards compatibility)
-# ===========================================
-
-  # DEPRECATED: GET/POST /v1/enrichments/jobs -> /api/v1/enrichments/jobs
-  - name: enrichment-jobs
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/jobs$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-      - deprecated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/jobs
-
-  # DEPRECATED: GET/DELETE /v1/enrichments/jobs/{jobId} -> /api/v1/enrichments/jobs/{jobId}
-  - name: enrichment-job-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/jobs/(?<jobId>[^/]+)$
-    methods:
-      - GET
-      - DELETE
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-      - deprecated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/jobs/$(uri_captures.jobId)
-
-  # DEPRECATED: GET /v1/enrichments/jobs/{jobId}/stream -> /api/v1/enrichments/jobs/{jobId}/stream
-  - name: enrichment-job-stream
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/jobs/(?<jobId>[^/]+)/stream$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - streaming
-      - deprecated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/jobs/$(uri_captures.jobId)/stream
-
-  # DEPRECATED: POST /v1/enrichments/preflight -> /api/v1/enrichments/preflight
-  - name: enrichment-preflight
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/preflight$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-      - deprecated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/preflight
-
-# ===========================================
-# Routes - Configuration (100 req/min rate limit)
-# ===========================================
-
-  # GET/POST /v1/enrichment-config -> /api/v1/enrichment-config
-  - name: enrichment-configurations
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichment-config$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    tags:
-      - configuration
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichment-config
-
-  # GET/PUT/DELETE /v1/enrichment-config/{configId}
-  - name: enrichment-configuration-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichment-config/(?<configId>[^/]+)$
-    methods:
-      - GET
-      - PUT
-      - DELETE
-    strip_path: false
-    tags:
-      - configuration
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichment-config/$(uri_captures.configId)
-
-  # GET/POST /v1/enrichments/field-mappings -> /api/v1/enrichments/field-mappings
-  - name: enrichment-field-mappings
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/field-mappings$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    tags:
-      - configuration
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/field-mappings
-
-  # GET/PUT/DELETE /v1/enrichments/field-mappings/{mappingId}
-  - name: enrichment-field-mapping-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/enrichments/field-mappings/(?<mappingId>[^/]+)$
-    methods:
-      - GET
-      - PUT
-      - DELETE
-    strip_path: false
-    tags:
-      - configuration
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/enrichments/field-mappings/$(uri_captures.mappingId)
-
-# ===========================================
-# Routes - CRM Configuration (api/v1/crm/config)
-# ===========================================
-
-  # GET /v1/crm/config/platforms -> List supported CRM platforms
-  - name: crm-config-platforms
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/platforms$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/platforms
-
-  # GET /v1/crm/config/platforms/{platform}/health -> Check CRM connection
-  - name: crm-config-platform-health
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/health$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/health
-
-  # GET /v1/crm/config/platforms/{platform}/fields -> Get available fields
-  - name: crm-config-platform-fields
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/fields$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/fields
-
-  # GET /v1/crm/config/platforms/{platform}/mappings -> Get field mappings
-  - name: crm-config-platform-mappings
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/platforms/(?<platform>[^/]+)/mappings$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/platforms/$(uri_captures.platform)/mappings
-
-  # GET /v1/crm/config/translate/to-platform -> Translate to CRM field names
-  - name: crm-config-translate-to-platform
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/translate/to-platform$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/translate/to-platform
-
-  # GET /v1/crm/config/translate/to-canonical -> Translate to canonical names
-  - name: crm-config-translate-to-canonical
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/translate/to-canonical$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/translate/to-canonical
-
-# ===========================================
-# Routes - CRM Integrations (api/v1/crm/config/integrations)
-# Epic #247: Portal Integration - HubSpot Settings
-# ===========================================
-
-  # POST /v1/crm/config/integrations/test -> Test API key before saving
-  # STRICT rate limit (5/min) to prevent API key enumeration attacks
-  - name: crm-integrations-test
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/integrations/test$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-strict
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/integrations/test
-
-  # GET/POST /v1/crm/config/integrations -> List/create integrations
-  - name: crm-integrations
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/integrations$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    regex_priority: 150
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/integrations
-
-  # GET/DELETE /v1/crm/config/integrations/{id} -> Get/delete specific integration
-  - name: crm-integration-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/config/integrations/(?<integrationId>[^/]+)$
-    methods:
-      - GET
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/config/integrations/$(uri_captures.integrationId)
-
-# ===========================================
-# Routes - CRM Contacts (api/v1/crm/contacts)
-# ===========================================
-
-  # POST /v1/crm/contacts -> Create contact
-  - name: crm-contacts-create
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/contacts$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/contacts
-
-  # POST /v1/crm/contacts/search -> Search contacts
-  - name: crm-contacts-search
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/contacts/search$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/contacts/search
-
-  # GET/PATCH/DELETE /v1/crm/contacts/{id} -> Manage contact
-  - name: crm-contacts-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/contacts/(?<contactId>[^/]+)$
-    methods:
-      - GET
-      - PATCH
-      - DELETE
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/contacts/$(uri_captures.contactId)
-
-# ===========================================
-# Routes - CRM Companies (api/v1/crm/companies)
-# ===========================================
-
-  # POST /v1/crm/companies -> Create company
-  - name: crm-companies-create
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/companies$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/companies
-
-  # POST /v1/crm/companies/search -> Search companies
-  - name: crm-companies-search
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/companies/search$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/companies/search
-
-  # GET/PATCH/DELETE /v1/crm/companies/{id} -> Manage company
-  - name: crm-companies-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/crm/companies/(?<companyId>[^/]+)$
-    methods:
-      - GET
-      - PATCH
-      - DELETE
-    strip_path: false
-    tags:
-      - crm
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/crm/companies/$(uri_captures.companyId)
-
-# ===========================================
-# Routes - LinkedIn Connection (Portal Settings)
-# ===========================================
-
-  # GET /v1/linkedin-connection/availability -> Check if session can be created
-  - name: linkedin-connection-availability
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/availability$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/availability
-
-  # POST /v1/linkedin-connection/initialize -> Create Browserbase session
-  - name: linkedin-connection-initialize
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/initialize$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-strict
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/initialize
-
-  # GET /v1/linkedin-connection/status -> Get connection status
-  - name: linkedin-connection-status
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/status$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/status
-
-  # POST /v1/linkedin-connection/verify -> Verify login completed
-  - name: linkedin-connection-verify
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/verify$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-strict
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/verify
-
-  # DELETE /v1/linkedin-connection -> Disconnect account
-  - name: linkedin-connection-disconnect
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection$
-    methods:
-      - DELETE
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection
-
-  # GET /v1/linkedin-connection/profile -> Get profile data
-  - name: linkedin-connection-profile
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/profile$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/profile
-
-  # GET /v1/linkedin-connection/poll/{sessionId} -> Poll login status
-  - name: linkedin-connection-poll
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin-connection/poll/(?<sessionId>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin-connection/poll/$(uri_captures.sessionId)
-
-# ===========================================
-# Routes - API Keys (100 req/min)
-# ===========================================
-
-  # GET/POST /v1/api-keys -> /api/v1/ApiKeys
+  # ── API keys (CRUD on the bearer the customer uses) ──────────────────
   - name: api-keys
     service: abmdev-backend
     paths:
@@ -1051,640 +232,523 @@ routes:
     tags:
       - api-keys
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/ApiKeys
+            uri: /api/v1/api-keys
 
-  # DELETE /v1/api-keys/{keyId} -> /api/v1/ApiKeys/{keyId}
   - name: api-key-by-id
     service: abmdev-backend
     paths:
       - ~/v1/api-keys/(?<keyId>[^/]+)$
+    methods:
+      - GET
+      - DELETE
+    strip_path: false
+    tags:
+      - api-keys
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/api-keys/$(uri_captures.keyId)
+
+  - name: api-key-rotate
+    service: abmdev-backend
+    paths:
+      - ~/v1/api-keys/(?<keyId>[^/]+)/rotate$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - api-keys
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/api-keys/$(uri_captures.keyId)/rotate
+
+  - name: api-key-permanent
+    service: abmdev-backend
+    paths:
+      - ~/v1/api-keys/(?<keyId>[^/]+)/permanent$
     methods:
       - DELETE
     strip_path: false
     tags:
       - api-keys
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/ApiKeys/$(uri_captures.keyId)
+            uri: /api/v1/api-keys/$(uri_captures.keyId)/permanent
 
-# ===========================================
-# Routes - Organizations (100 req/min)
-# ===========================================
-
-  # GET /v1/organizations/current
-  - name: organizations-current
+  # ── Enrichments (THE PRODUCT) ─────────────────────────────────────────
+  - name: enrichments
     service: abmdev-backend
     paths:
-      - ~/v1/organizations/current$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - organization
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/organizations/current
-
-  # GET /v1/organizations/current/usage
-  - name: organizations-usage
-    service: abmdev-backend
-    paths:
-      - ~/v1/organizations/current/usage$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - organization
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/organizations/current/usage
-
-  # POST /v1/organizations/signup -> public (Clerk JWT validated by backend)
-  # New-user bootstrap: no org_id claim yet, so must bypass backend key-auth +
-  # post-function x-org-id injection. Routed via abmdev-public; backend's
-  # ClerkJwtAuthenticationMiddleware validates the Bearer token directly.
-  - name: organizations-signup
-    service: abmdev-public
-    paths:
-      - ~/v1/organizations/signup$
-    methods:
-      - POST
-      - OPTIONS
-    strip_path: false
-    tags:
-      - organization
-      - public
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/organizations/signup
-
-# ===========================================
-# Routes - User Management (Team Settings)
-# ===========================================
-
-  # GET /v1/users/me -> Get current user's membership
-  - name: users-me
-    service: abmdev-backend
-    paths:
-      - ~/v1/users/me$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - users
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/users/me
-
-  # GET /v1/users/members -> List organization members
-  - name: users-members-list
-    service: abmdev-backend
-    paths:
-      - ~/v1/users/members$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - users
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/users/members
-
-  # PATCH /v1/users/members/{userId}/role -> Update member role
-  - name: users-member-role
-    service: abmdev-backend
-    paths:
-      - ~/v1/users/members/(?<userId>[^/]+)/role$
-    methods:
-      - PATCH
-    strip_path: false
-    tags:
-      - users
-      - authenticated
-      - rate-limit-strict
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/users/members/$(uri_captures.userId)/role
-
-  # DELETE /v1/users/members/{userId} -> Remove member
-  - name: users-member-delete
-    service: abmdev-backend
-    paths:
-      - ~/v1/users/members/(?<userId>[^/]+)$
-    methods:
-      - DELETE
-    strip_path: false
-    tags:
-      - users
-      - authenticated
-      - rate-limit-strict
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/users/members/$(uri_captures.userId)
-
-  # GET/POST /v1/users/invites -> List/create invites
-  - name: users-invites-list-create
-    service: abmdev-backend
-    paths:
-      - ~/v1/users/invites$
+      - ~/v1/enrichments$
     methods:
       - GET
       - POST
     strip_path: false
     tags:
-      - users
+      - enrichment
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/users/invites
+            uri: /api/v1/enrichments
 
-  # GET/DELETE /v1/users/invites/{inviteId} -> Get/revoke specific invite
-  - name: users-invite-by-id
+  - name: enrichments-jobs
     service: abmdev-backend
     paths:
-      - ~/v1/users/invites/(?<inviteId>[^/]+)$
+      - ~/v1/enrichments/jobs$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/jobs
+
+  - name: enrichments-stats
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/stats$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/stats
+
+  - name: enrichment-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)$
     methods:
       - GET
       - DELETE
     strip_path: false
-    regex_priority: 100
     tags:
-      - users
+      - enrichment
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/users/invites/$(uri_captures.inviteId)
+            uri: /api/v1/enrichments/$(uri_captures.id)
 
-  # POST /v1/users/invites/{inviteId}/resend -> Resend invite email
-  - name: users-invite-resend
+  - name: enrichment-stream
     service: abmdev-backend
     paths:
-      - ~/v1/users/invites/(?<inviteId>[^/]+)/resend$
+      - ~/v1/enrichments/(?<id>\d+)/stream$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - sse
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/stream
+
+  - name: enrichment-logs
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/logs$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/logs
+
+  - name: enrichment-approve
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/approve$
     methods:
       - POST
     strip_path: false
-    regex_priority: 200
     tags:
-      - users
+      - enrichment
       - authenticated
-      - rate-limit-strict
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/users/invites/$(uri_captures.inviteId)/resend
+            uri: /api/v1/enrichments/$(uri_captures.id)/approve
 
-  # POST /v1/users/invites/accept -> Accept invitation
-  - name: users-invite-accept
+  - name: enrichment-sources
     service: abmdev-backend
     paths:
-      - ~/v1/users/invites/accept$
+      - ~/v1/enrichments/(?<id>\d+)/sources$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/sources
+
+  - name: enrichment-fields
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/fields$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/fields
+
+  - name: enrichment-writeback-preview
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/writeback-preview$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - writeback
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/writeback-preview
+
+  - name: enrichment-export
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/(?<id>\d+)/export/excel$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - export
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/$(uri_captures.id)/export/excel
+
+  # Batch enrichment (preview/confirm/list/get/members/approve/export)
+  - name: enrichment-batches
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - batch
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches
+
+  - name: enrichment-batches-preview
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches/preview$
     methods:
       - POST
     strip_path: false
-    regex_priority: 300
     tags:
-      - users
+      - enrichment
+      - batch
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/users/invites/accept
+            uri: /api/v1/enrichments/batches/preview
 
-  # GET /v1/users/invites/pending -> Get pending invites for current user
-  - name: users-invites-pending
+  - name: enrichment-batches-confirm
     service: abmdev-backend
     paths:
-      - ~/v1/users/invites/pending$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 300
-    tags:
-      - users
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/users/invites/pending
-
-# ===========================================
-# Routes - Workspaces (Authenticated)
-# ===========================================
-
-  # GET /v1/workspaces - List all workspaces for organization
-  - name: workspaces-list
-    service: abmdev-backend
-    paths:
-      - ~/v1/workspaces$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - workspaces
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/workspaces
-
-  # POST /v1/workspaces - Create a new workspace
-  - name: workspaces-create
-    service: abmdev-backend
-    paths:
-      - ~/v1/workspaces$
+      - ~/v1/enrichments/batches/confirm$
     methods:
       - POST
     strip_path: false
-    regex_priority: 200
     tags:
-      - workspaces
+      - enrichment
+      - batch
       - authenticated
-      - rate-limit-write
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/workspaces
+            uri: /api/v1/enrichments/batches/confirm
 
-  # GET /v1/workspaces/default - Get default workspace
-  - name: workspaces-default
+  - name: enrichment-batch-by-id
     service: abmdev-backend
     paths:
-      - ~/v1/workspaces/default$
+      - ~/v1/enrichments/batches/(?<batchId>[^/]+)$
     methods:
       - GET
     strip_path: false
-    regex_priority: 300
     tags:
-      - workspaces
+      - enrichment
+      - batch
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/workspaces/default
+            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)
 
-  # GET /v1/workspaces/{id} - Get workspace by ID
-  - name: workspaces-get-by-id
+  - name: enrichment-batch-members
     service: abmdev-backend
     paths:
-      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)$
+      - ~/v1/enrichments/batches/(?<batchId>[^/]+)/members$
     methods:
       - GET
     strip_path: false
-    regex_priority: 100
     tags:
-      - workspaces
+      - enrichment
+      - batch
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])
+            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)/members
 
-  # PUT /v1/workspaces/{id} - Update workspace
-  - name: workspaces-update
+  - name: enrichment-batch-approve
     service: abmdev-backend
     paths:
-      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)$
+      - ~/v1/enrichments/batches/(?<batchId>[^/]+)/approve$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - batch
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)/approve
+
+  - name: enrichment-batch-export
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichments/batches/(?<batchId>[^/]+)/export/excel$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - enrichment
+      - batch
+      - export
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichments/batches/$(uri_captures.batchId)/export/excel
+
+  # ── Enrichment configuration ─────────────────────────────────────────
+  - name: enrichment-config
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment-config$
+    methods:
+      - GET
+      - PUT
+    strip_path: false
+    tags:
+      - enrichment
+      - configuration
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment-config
+
+  - name: enrichment-config-reset
+    service: abmdev-backend
+    paths:
+      - ~/v1/enrichment-config/reset$
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - enrichment
+      - configuration
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/enrichment-config/reset
+
+  # ── Field configuration + HubSpot field mappings (writeback) ────────
+  - name: field-config
+    service: abmdev-backend
+    paths:
+      - ~/v1/field-config$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - field-config
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/field-config
+
+  - name: field-config-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/field-config/(?<fieldId>[^/]+)$
     methods:
       - PUT
     strip_path: false
-    regex_priority: 100
     tags:
-      - workspaces
+      - field-config
       - authenticated
-      - rate-limit-write
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])
+            uri: /api/v1/field-config/$(uri_captures.fieldId)
 
-  # DELETE /v1/workspaces/{id} - Archive workspace
-  - name: workspaces-archive
+  - name: field-mappings-hubspot
     service: abmdev-backend
     paths:
-      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)$
-    methods:
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - workspaces
-      - authenticated
-      - rate-limit-write
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])
-
-  # GET /v1/workspaces/{id}/members - List workspace members
-  - name: workspaces-members-list
-    service: abmdev-backend
-    paths:
-      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)/members$
+      - ~/v1/field-mappings/hubspot$
     methods:
       - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - workspaces
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])/members
-
-  # POST /v1/workspaces/{id}/members - Add workspace member
-  - name: workspaces-members-add
-    service: abmdev-backend
-    paths:
-      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)/members$
-    methods:
       - POST
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - workspaces
-      - authenticated
-      - rate-limit-write
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])/members
-
-  # DELETE /v1/workspaces/{id}/members/{userId} - Remove workspace member
-  - name: workspaces-members-remove
-    service: abmdev-backend
-    paths:
-      - ~/v1/workspaces/(?<workspaceId>[0-9a-f-]+)/members/(?<userId>[^/]+)$
-    methods:
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - workspaces
-      - authenticated
-      - rate-limit-write
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/workspaces/$(uri_captures["workspaceId"])/members/$(uri_captures["userId"])
-
-# ===========================================
-# Routes - Teams (Authenticated)
-# ===========================================
-
-  # GET /v1/teams - List all teams for organization
-  - name: teams-list
-    service: abmdev-backend
-    paths:
-      - ~/v1/teams$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - teams
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/teams
-
-  # POST /v1/teams - Create a new team
-  - name: teams-create
-    service: abmdev-backend
-    paths:
-      - ~/v1/teams$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - teams
-      - authenticated
-      - rate-limit-write
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/teams
-
-  # GET /v1/teams/my - Get current user's teams
-  - name: teams-my
-    service: abmdev-backend
-    paths:
-      - ~/v1/teams/my$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 300
-    tags:
-      - teams
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/teams/my
-
-  # GET /v1/teams/{id} - Get team by ID
-  - name: teams-get-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/teams/(?<teamId>[0-9a-f-]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - teams
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/teams/$(uri_captures["teamId"])
-
-  # PUT /v1/teams/{id} - Update team
-  - name: teams-update
-    service: abmdev-backend
-    paths:
-      - ~/v1/teams/(?<teamId>[0-9a-f-]+)$
-    methods:
       - PUT
     strip_path: false
-    regex_priority: 100
     tags:
-      - teams
+      - field-mappings
+      - hubspot
       - authenticated
-      - rate-limit-write
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/teams/$(uri_captures["teamId"])
+            uri: /api/v1/field-mappings/hubspot
 
-  # DELETE /v1/teams/{id} - Archive team
-  - name: teams-archive
+  - name: field-mappings-hubspot-by-id
     service: abmdev-backend
     paths:
-      - ~/v1/teams/(?<teamId>[0-9a-f-]+)$
+      - ~/v1/field-mappings/hubspot/(?<mappingId>\d+)$
     methods:
       - DELETE
     strip_path: false
-    regex_priority: 100
     tags:
-      - teams
+      - field-mappings
+      - hubspot
       - authenticated
-      - rate-limit-write
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/teams/$(uri_captures["teamId"])
+            uri: /api/v1/field-mappings/hubspot/$(uri_captures.mappingId)
 
-  # GET /v1/teams/{id}/members - List team members
-  - name: teams-members-list
+  # ── HubSpot CRM (writeback target) ──────────────────────────────────
+  - name: hubspot-properties
     service: abmdev-backend
     paths:
-      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members$
+      - ~/v1/hubspot/properties$
     methods:
       - GET
     strip_path: false
-    regex_priority: 100
     tags:
-      - teams
+      - hubspot
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/teams/$(uri_captures["teamId"])/members
+            uri: /api/v1/hubspot/properties
 
-  # POST /v1/teams/{id}/members - Add team member
-  - name: teams-members-add
+  - name: hubspot-migration-preview
     service: abmdev-backend
     paths:
-      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members$
+      - ~/v1/hubspot/migration/preview$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - hubspot
+      - migration
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/hubspot/migration/preview
+
+  - name: hubspot-migration-execute
+    service: abmdev-backend
+    paths:
+      - ~/v1/hubspot/migration/execute$
     methods:
       - POST
     strip_path: false
-    regex_priority: 100
     tags:
-      - teams
+      - hubspot
+      - migration
       - authenticated
-      - rate-limit-write
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/teams/$(uri_captures["teamId"])/members
+            uri: /api/v1/hubspot/migration/execute
 
-  # DELETE /v1/teams/{id}/members/{userId} - Remove team member
-  - name: teams-members-remove
-    service: abmdev-backend
-    paths:
-      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members/(?<userId>[^/]+)$
-    methods:
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - teams
-      - authenticated
-      - rate-limit-write
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/teams/$(uri_captures["teamId"])/members/$(uri_captures["userId"])
-
-  # PATCH /v1/teams/{id}/members/{userId}/role - Update member role
-  - name: teams-members-update-role
-    service: abmdev-backend
-    paths:
-      - ~/v1/teams/(?<teamId>[0-9a-f-]+)/members/(?<userId>[^/]+)/role$
-    methods:
-      - PATCH
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - teams
-      - authenticated
-      - rate-limit-write
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/teams/$(uri_captures["teamId"])/members/$(uri_captures["userId"])/role
-
-# ===========================================
-# Routes - Billing (Credits & Payments)
-# ===========================================
-
-  # GET /v1/billing/packages -> Public endpoint (no auth needed)
+  # ── Billing (so customers can buy credits to run enrichments) ───────
   - name: billing-packages
-    service: abmdev-public
+    service: abmdev-backend
     paths:
       - ~/v1/billing/packages$
     methods:
@@ -1692,15 +756,13 @@ routes:
     strip_path: false
     tags:
       - billing
-      - public
-      - rate-limit-standard
+      - authenticated
     plugins:
       - name: request-transformer
         config:
           replace:
             uri: /api/v1/billing/packages
 
-  # GET /v1/billing/credits -> Get credit balance
   - name: billing-credits
     service: abmdev-backend
     paths:
@@ -1708,18 +770,15 @@ routes:
     methods:
       - GET
     strip_path: false
-    regex_priority: 200
     tags:
       - billing
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
             uri: /api/v1/billing/credits
 
-  # GET /v1/billing/credits/history -> Get credit transaction history
   - name: billing-credits-history
     service: abmdev-backend
     paths:
@@ -1727,18 +786,15 @@ routes:
     methods:
       - GET
     strip_path: false
-    regex_priority: 300
     tags:
       - billing
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
             uri: /api/v1/billing/credits/history
 
-  # GET /v1/billing/subscription -> Get subscription details
   - name: billing-subscription
     service: abmdev-backend
     paths:
@@ -1749,14 +805,12 @@ routes:
     tags:
       - billing
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
             uri: /api/v1/billing/subscription
 
-  # POST /v1/billing/checkout -> Create Stripe checkout session
   - name: billing-checkout
     service: abmdev-backend
     paths:
@@ -1764,37 +818,15 @@ routes:
     methods:
       - POST
     strip_path: false
-    regex_priority: 200
     tags:
       - billing
       - authenticated
-      - rate-limit-strict
     plugins:
       - name: request-transformer
         config:
           replace:
             uri: /api/v1/billing/checkout
 
-  # GET /v1/billing/checkout/{sessionId}/status -> Get checkout status
-  - name: billing-checkout-status
-    service: abmdev-backend
-    paths:
-      - ~/v1/billing/checkout/(?<sessionId>[^/]+)/status$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - billing
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/billing/checkout/$(uri_captures.sessionId)/status
-
-  # GET /v1/billing/payments -> Get payment history
   - name: billing-payments
     service: abmdev-backend
     paths:
@@ -1805,1451 +837,44 @@ routes:
     tags:
       - billing
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
             uri: /api/v1/billing/payments
 
-  # GET /v1/billing/invoices -> List invoices
-  - name: billing-invoices
+  - name: billing-transactions
     service: abmdev-backend
     paths:
-      - ~/v1/billing/invoices$
+      - ~/v1/billing/transactions$
     methods:
       - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - billing
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/billing/invoices
-
-  # GET /v1/billing/invoices/{id} -> Get specific invoice
-  - name: billing-invoice-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/billing/invoices/(?<invoiceId>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - billing
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/billing/invoices/$(uri_captures.invoiceId)
-
-  # PUT /v1/billing/billing-details -> Update billing details
-  - name: billing-details-update
-    service: abmdev-backend
-    paths:
-      - ~/v1/billing/billing-details$
-    methods:
-      - PUT
     strip_path: false
     tags:
       - billing
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/billing/billing-details
+            uri: /api/v1/billing/transactions
 
-# ===========================================
-# Routes - Webhooks (Inbound + Outbound)
-# ===========================================
-
-  # POST /webhooks/stripe -> Stripe webhook (public, signature verified by backend)
-  - name: webhooks-stripe
-    service: abmdev-public
-    paths:
-      - /webhooks/stripe
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - public
-      - webhook
-      - stripe
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/webhooks/stripe
-
-  # ---- Outbound webhook subscriptions (authenticated) ---------------------
-  # Used by Zapier polling triggers, n8n integration, and direct API customers
-  # who want HTTP callbacks for enrichment.completed, campaign.completed, etc.
-
-  # GET /v1/webhooks/subscriptions -> List subscriptions for the org
-  # POST /v1/webhooks/subscriptions -> Create a new subscription
-  - name: webhooks-subscriptions
+  - name: billing-usage-daily
     service: abmdev-backend
     paths:
-      - ~/v1/webhooks/subscriptions$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    tags:
-      - webhooks
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/webhooks/subscriptions
-
-  # GET    /v1/webhooks/subscriptions/{id} -> Get one
-  # PATCH  /v1/webhooks/subscriptions/{id} -> Update one
-  # DELETE /v1/webhooks/subscriptions/{id} -> Delete one
-  - name: webhooks-subscription-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/webhooks/subscriptions/(?<id>[^/]+)$
-    methods:
-      - GET
-      - PATCH
-      - DELETE
-    strip_path: false
-    tags:
-      - webhooks
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/webhooks/subscriptions/$(uri_captures.id)
-
-  # GET /v1/webhooks/events -> Polling endpoint (Zapier/n8n/Clay tail of recent events)
-  - name: webhooks-events
-    service: abmdev-backend
-    paths:
-      - ~/v1/webhooks/events$
+      - ~/v1/billing/usage/daily$
     methods:
       - GET
     strip_path: false
     tags:
-      - webhooks
+      - billing
       - authenticated
-      - rate-limit-standard
     plugins:
       - name: request-transformer
         config:
           replace:
-            uri: /api/v1/webhooks/events
+            uri: /api/v1/billing/usage/daily
 
-  # GET /v1/webhooks/event-types -> List supported event types (catalog)
-  - name: webhooks-event-types
-    service: abmdev-backend
-    paths:
-      - ~/v1/webhooks/event-types$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - webhooks
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/webhooks/event-types
-
-# ===========================================
-# Routes - Campaigns (Enrichment Campaigns)
-# ===========================================
-
-  # GET /v1/campaigns -> List campaigns
-  - name: campaigns-list
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns
-
-  # GET /v1/campaigns/{id} -> Get campaign by ID
-  - name: campaigns-get-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/$(uri_captures.campaignId)
-
-  # POST /v1/campaigns/preview -> Preview campaign before creation
-  - name: campaigns-preview
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/preview$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/preview
-
-  # POST /v1/campaigns/confirm -> Confirm and start campaign
-  - name: campaigns-confirm
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/confirm$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/confirm
-
-# ===========================================
-# Routes - People Finder (20 req/min rate limit - expensive)
-# ===========================================
-
-  # GET/POST /v1/people-finder -> List + create people finder jobs
-  - name: people-finder
-    service: abmdev-backend
-    paths:
-      - ~/v1/people-finder$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    tags:
-      - people-finder
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/people-finder
-
-  # GET/DELETE /v1/people-finder/{id} -> Get + cancel by job ID
-  - name: people-finder-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v1/people-finder/(?<id>[^/]+)$
-    methods:
-      - GET
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - people-finder
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/people-finder/$(uri_captures.id)
-
-  # GET /v1/people-finder/{id}/stream -> SSE stream
-  - name: people-finder-stream
-    service: abmdev-backend
-    paths:
-      - ~/v1/people-finder/(?<id>[^/]+)/stream$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - people-finder
-      - authenticated
-      - streaming
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/people-finder/$(uri_captures.id)/stream
-
-  # POST /v1/people-finder/list/preview -> Preview list-based people finder
-  - name: people-finder-list-preview
-    service: abmdev-backend
-    paths:
-      - ~/v1/people-finder/list/preview$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - people-finder
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/people-finder/list/preview
-
-  # POST /v1/people-finder/list/confirm -> Confirm list-based people finder
-  - name: people-finder-list-confirm
-    service: abmdev-backend
-    paths:
-      - ~/v1/people-finder/list/confirm$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - people-finder
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/people-finder/list/confirm
-
-  # POST /v1/people-finder/upload -> Upload file for people finder
-  - name: people-finder-upload
-    service: abmdev-backend
-    paths:
-      - ~/v1/people-finder/upload$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - people-finder
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/people-finder/upload
-
-  # POST /v1/people-finder/upload/confirm -> Confirm uploaded people finder
-  - name: people-finder-upload-confirm
-    service: abmdev-backend
-    paths:
-      - ~/v1/people-finder/upload/confirm$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 300
-    tags:
-      - people-finder
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/people-finder/upload/confirm
-
-# ===========================================
-# Routes - Campaigns: Additional Sub-Routes (100 req/min)
-# ===========================================
-
-  # GET /v1/campaigns/{id}/stream -> SSE stream for campaign
-  - name: campaigns-stream
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)/stream$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - campaigns
-      - authenticated
-      - streaming
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/$(uri_captures.campaignId)/stream
-
-  # GET /v1/campaigns/{id}/results -> Get campaign results
-  - name: campaigns-results
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)/results$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/$(uri_captures.campaignId)/results
-
-  # POST /v1/campaigns/{id}/approve -> Approve campaign
-  - name: campaigns-approve
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)/approve$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/$(uri_captures.campaignId)/approve
-
-  # POST /v1/campaigns/{id}/writeback -> Write campaign results back to CRM
-  - name: campaigns-writeback
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)/writeback$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/$(uri_captures.campaignId)/writeback
-
-  # DELETE /v1/campaigns/{id} -> Delete campaign
-  - name: campaigns-delete
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)$
-    methods:
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/$(uri_captures.campaignId)
-
-  # GET /v1/campaigns/{id}/candidates/{companyJobId}/{index}/enrichment -> Get candidate enrichment
-  - name: campaigns-candidate-enrichment
-    service: abmdev-backend
-    paths:
-      - ~/v1/campaigns/(?<campaignId>[0-9a-f-]+)/candidates/(?<companyJobId>[^/]+)/(?<index>[^/]+)/enrichment$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - campaigns
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/campaigns/$(uri_captures.campaignId)/candidates/$(uri_captures.companyJobId)/$(uri_captures.index)/enrichment
-
-# ===========================================
-# Routes - LinkedIn Voyager API (100 req/min)
-# ===========================================
-
-  # GET /v1/linkedin/accounts -> List linked LinkedIn accounts
-  - name: linkedin-accounts
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/accounts$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/accounts
-
-  # GET /v1/linkedin/profiles/{publicId} -> Get LinkedIn profile
-  - name: linkedin-profiles-get
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/profiles/(?<publicId>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/profiles/$(uri_captures.publicId)
-
-  # GET /v1/linkedin/profiles/{publicId}/contact -> Get profile contact info
-  - name: linkedin-profiles-contact
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/profiles/(?<publicId>[^/]+)/contact$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/profiles/$(uri_captures.publicId)/contact
-
-  # GET /v1/linkedin/profiles/{publicId}/skills -> Get profile skills
-  - name: linkedin-profiles-skills
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/profiles/(?<publicId>[^/]+)/skills$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/profiles/$(uri_captures.publicId)/skills
-
-  # GET /v1/linkedin/profiles/{publicId}/network -> Get profile network info
-  - name: linkedin-profiles-network
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/profiles/(?<publicId>[^/]+)/network$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/profiles/$(uri_captures.publicId)/network
-
-  # GET /v1/linkedin/profiles/{publicId}/posts -> Get profile posts
-  - name: linkedin-profiles-posts
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/profiles/(?<publicId>[^/]+)/posts$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/profiles/$(uri_captures.publicId)/posts
-
-  # GET /v1/linkedin/profiles/{publicId}/history -> Get profile history
-  - name: linkedin-profiles-history
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/profiles/(?<publicId>[^/]+)/history$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/profiles/$(uri_captures.publicId)/history
-
-  # GET /v1/linkedin/profiles/{publicId}/diff -> Get profile diff
-  - name: linkedin-profiles-diff
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/profiles/(?<publicId>[^/]+)/diff$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/profiles/$(uri_captures.publicId)/diff
-
-  # GET /v1/linkedin/companies/{universalName} -> Get company profile
-  - name: linkedin-companies-get
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/companies/(?<universalName>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/companies/$(uri_captures.universalName)
-
-  # GET /v1/linkedin/companies/{universalName}/updates -> Get company updates
-  - name: linkedin-companies-updates
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/companies/(?<universalName>[^/]+)/updates$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/companies/$(uri_captures.universalName)/updates
-
-  # GET /v1/linkedin/companies/{universalName}/diff -> Get company diff
-  - name: linkedin-companies-diff
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/companies/(?<universalName>[^/]+)/diff$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/companies/$(uri_captures.universalName)/diff
-
-  # GET /v1/linkedin/companies/{companyId}/employees -> Get company employees
-  - name: linkedin-companies-employees
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/companies/(?<companyId>[^/]+)/employees$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/companies/$(uri_captures.companyId)/employees
-
-  # POST/DELETE /v1/linkedin/companies/{companyUrn}/follow -> Follow/unfollow company
-  - name: linkedin-companies-follow
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/companies/(?<companyUrn>[^/]+)/follow$
-    methods:
-      - POST
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/companies/$(uri_captures.companyUrn)/follow
-
-  # POST /v1/linkedin/search/people -> Search people
-  - name: linkedin-search-people
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/search/people$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/search/people
-
-  # POST /v1/linkedin/search/companies -> Search companies
-  - name: linkedin-search-companies
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/search/companies$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/search/companies
-
-  # POST /v1/linkedin/search/jobs -> Search jobs
-  - name: linkedin-search-jobs
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/search/jobs$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/search/jobs
-
-  # POST /v1/linkedin/search/posts -> Search posts
-  - name: linkedin-search-posts
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/search/posts$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/search/posts
-
-  # GET /v1/linkedin/jobs/{jobId} -> Get job details
-  - name: linkedin-jobs-get
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/jobs/(?<jobId>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/jobs/$(uri_captures.jobId)
-
-  # GET /v1/linkedin/jobs/{jobId}/skills -> Get job required skills
-  - name: linkedin-jobs-skills
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/jobs/(?<jobId>[^/]+)/skills$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/jobs/$(uri_captures.jobId)/skills
-
-  # GET /v1/linkedin/feed -> Get LinkedIn feed
-  - name: linkedin-feed
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/feed$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/feed
-
-  # POST /v1/linkedin/posts -> Create a post
-  - name: linkedin-posts-create
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/posts$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/posts
-
-  # PATCH/DELETE /v1/linkedin/posts/{postUrn} -> Update/delete a post
-  - name: linkedin-posts-manage
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/posts/(?<postUrn>[^/]+)$
-    methods:
-      - PATCH
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/posts/$(uri_captures.postUrn)
-
-  # POST /v1/linkedin/media/upload -> Upload media
-  - name: linkedin-media-upload
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/media/upload$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/media/upload
-
-  # GET/POST /v1/linkedin/posts/{postUrn}/comments -> List/create comments
-  - name: linkedin-posts-comments
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/posts/(?<postUrn>[^/]+)/comments$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/posts/$(uri_captures.postUrn)/comments
-
-  # GET/POST /v1/linkedin/posts/{postUrn}/reactions -> List/create reactions
-  - name: linkedin-posts-reactions
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/posts/(?<postUrn>[^/]+)/reactions$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/posts/$(uri_captures.postUrn)/reactions
-
-  # GET /v1/linkedin/connections -> List connections
-  - name: linkedin-connections
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/connections$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/connections
-
-  # POST /v1/linkedin/connections/requests -> Send connection request
-  - name: linkedin-connections-requests
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/connections/requests$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 300
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/connections/requests
-
-  # DELETE /v1/linkedin/connections/{publicId} -> Remove connection
-  - name: linkedin-connections-remove
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/connections/(?<publicId>[^/]+)$
-    methods:
-      - DELETE
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/connections/$(uri_captures.publicId)
-
-  # GET /v1/linkedin/connections/invitations -> List pending invitations
-  - name: linkedin-connections-invitations
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/connections/invitations$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 300
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/connections/invitations
-
-  # POST /v1/linkedin/connections/invitations/respond -> Accept/decline invitation
-  - name: linkedin-connections-invitations-respond
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/connections/invitations/respond$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 400
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/connections/invitations/respond
-
-  # GET/POST /v1/linkedin/messages/conversations -> List/create conversations
-  - name: linkedin-messages-conversations
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/messages/conversations$
-    methods:
-      - GET
-      - POST
-    strip_path: false
-    regex_priority: 200
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/messages/conversations
-
-  # GET /v1/linkedin/messages/conversations/{conversationUrn} -> Get conversation
-  - name: linkedin-messages-conversation-get
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/messages/conversations/(?<conversationUrn>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/messages/conversations/$(uri_captures.conversationUrn)
-
-  # POST /v1/linkedin/messages/conversations/{conversationUrn}/send -> Send message
-  - name: linkedin-messages-conversation-send
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/messages/conversations/(?<conversationUrn>[^/]+)/send$
-    methods:
-      - POST
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/messages/conversations/$(uri_captures.conversationUrn)/send
-
-  # GET /v1/linkedin/messages/person/{profileUrn} -> Get messages with person
-  - name: linkedin-messages-person
-    service: abmdev-backend
-    paths:
-      - ~/v1/linkedin/messages/person/(?<profileUrn>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    regex_priority: 100
-    tags:
-      - linkedin
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/linkedin/messages/person/$(uri_captures.profileUrn)
-
-# ===========================================
-# Routes - Status (No rate limit)
-# ===========================================
-
-  # GET /v1/status
-  - name: status
-    service: abmdev-backend
-    paths:
-      - ~/v1/status$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - status
-      - authenticated
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v1/status
-
-# ===========================================
-# Routes - v2 API
-# ===========================================
-
-  # POST /v2/enrich -> /api/v2/enrich (create enrichment)
-  - name: v2-enrich
-    service: abmdev-backend
-    paths:
-      - ~/v2/enrich$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - v2
-      - enrichment
-      - authenticated
-      - rate-limit-enrichment
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/enrich
-
-  # GET /v2/enrich/{id} -> /api/v2/enrich/{id}
-  - name: v2-enrich-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v2/enrich/(?<id>[^/]+)$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - v2
-      - enrichment
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/enrich/$(uri_captures.id)
-
-  # POST /v2/enrich/{id}/approve -> /api/v2/enrich/{id}/approve
-  - name: v2-enrich-approve
-    service: abmdev-backend
-    paths:
-      - ~/v2/enrich/(?<id>[^/]+)/approve$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - v2
-      - enrichment
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/enrich/$(uri_captures.id)/approve
-
-  # POST /v2/search -> /api/v2/search
-  - name: v2-search
-    service: abmdev-backend
-    paths:
-      - ~/v2/search$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - v2
-      - search
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/search
-
-  # POST /v2/outreach -> /api/v2/outreach
-  - name: v2-outreach
-    service: abmdev-backend
-    paths:
-      - ~/v2/outreach$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - v2
-      - outreach
-      - authenticated
-      - rate-limit-write
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/outreach
-
-  # GET /v2/outreach/conversations -> /api/v2/outreach/conversations
-  - name: v2-outreach-conversations
-    service: abmdev-backend
-    paths:
-      - ~/v2/outreach/conversations$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - v2
-      - outreach
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/outreach/conversations
-
-  # GET /v2/jobs -> /api/v2/jobs
-  - name: v2-jobs
-    service: abmdev-backend
-    paths:
-      - ~/v2/jobs$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - v2
-      - jobs
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/jobs
-
-  # GET /v2/jobs/{id}/stream -> /api/v2/jobs/{id}/stream (SSE)
-  - name: v2-jobs-stream
-    service: abmdev-backend
-    paths:
-      - "~/v2/jobs/(?<id>[^/]+)/stream$"
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - v2
-      - jobs
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/jobs/$(uri_captures.id)/stream
-
-  # GET,DELETE /v2/jobs/{id} -> /api/v2/jobs/{id}
-  - name: v2-jobs-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v2/jobs/(?<id>[^/]+)$
-    methods:
-      - GET
-      - DELETE
-    strip_path: false
-    tags:
-      - v2
-      - jobs
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/jobs/$(uri_captures.id)
-
-  # GET,PATCH /v2/config -> /api/v2/config
-  - name: v2-config
-    service: abmdev-backend
-    paths:
-      - ~/v2/config$
-    methods:
-      - GET
-      - PATCH
-    strip_path: false
-    tags:
-      - v2
-      - config
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/config
-
-  # POST /v2/config/webhooks -> /api/v2/config/webhooks
-  - name: v2-config-webhooks
-    service: abmdev-backend
-    paths:
-      - ~/v2/config/webhooks$
-    methods:
-      - POST
-    strip_path: false
-    tags:
-      - v2
-      - config
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/config/webhooks
-
-  # DELETE /v2/config/webhooks/{id} -> /api/v2/config/webhooks/{id}
-  - name: v2-config-webhooks-by-id
-    service: abmdev-backend
-    paths:
-      - ~/v2/config/webhooks/(?<id>[^/]+)$
-    methods:
-      - DELETE
-    strip_path: false
-    tags:
-      - v2
-      - config
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/config/webhooks/$(uri_captures.id)
-
-  # GET /v2/account -> /api/v2/account
-  - name: v2-account
-    service: abmdev-backend
-    paths:
-      - ~/v2/account$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - v2
-      - account
-      - authenticated
-      - rate-limit-standard
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/account
-
-  # GET /v2/health -> /api/v2/health (public, no auth)
-  - name: v2-health
-    service: abmdev-public
-    paths:
-      - ~/v2/health$
-    methods:
-      - GET
-    strip_path: false
-    tags:
-      - v2
-      - health
-      - public
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: /api/v2/health
-
-# ===========================================
-# Global Plugins
-# ===========================================
 plugins:
   # CORS Plugin - Enable cross-origin requests from portal
   # Handles OPTIONS preflight requests automatically
