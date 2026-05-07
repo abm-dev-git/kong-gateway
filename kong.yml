@@ -10,7 +10,7 @@ _transform: true
 #   memory:feedback_minimal_enrichment_surface
 #   docs/superpowers/plans/2026-05-04-production-readiness-launch-checklist.md
 #
-# Route summary (~45 routes total, was ~150):
+# Route summary (~49 routes total, was ~150):
 #   - Public:       4 (root, health, clerk webhook, stripe webhook)
 #   - Status:       1 (status — client SDK warm-up)
 #   - Auth ctx:     3 (auth/me, organizations/current, organizations/signup)
@@ -21,6 +21,8 @@ _transform: true
 #   - HubSpot CRM:  4 (properties, migration preview/execute, field-mappings)
 #   - Billing:      8 (packages, credits + history, subscription, checkout,
 #                       payments, transactions, usage)
+#   - Webhooks:     4 (subscriptions list+create, subscription get/patch/delete,
+#                       events poll, event-types catalogue)
 
 services:
   # Main ABM.dev Backend API (for authenticated routes)
@@ -874,6 +876,77 @@ routes:
         config:
           replace:
             uri: /api/v1/billing/usage/daily
+
+  # ── Webhook subscriptions (outbound) ─────────────────────────────────
+  # User-managed subscriptions to platform events. Backend lives at
+  # WebhookSubscriptionsController. Inbound third-party webhooks
+  # (Stripe / Clerk) are handled by webhook-stripe / webhook-clerk above.
+  - name: webhooks-subscriptions
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/subscriptions$
+    methods:
+      - GET
+      - POST
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/subscriptions
+
+  - name: webhooks-subscription-by-id
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/subscriptions/(?<id>[0-9a-fA-F-]{36})$
+    methods:
+      - GET
+      - PATCH
+      - DELETE
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/subscriptions/$(uri_captures.id)
+
+  - name: webhooks-events
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/events$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/events
+
+  - name: webhooks-event-types
+    service: abmdev-backend
+    paths:
+      - ~/v1/webhooks/event-types$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - webhooks
+      - authenticated
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/webhooks/event-types
 
 plugins:
   # CORS Plugin - Enable cross-origin requests from portal
