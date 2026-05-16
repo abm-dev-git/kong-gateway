@@ -1233,7 +1233,7 @@ consumers:
 #   `key` field below against that `iss` claim (key_claim_name: iss), so
 #   this MUST be the proxy URL, not the clerk.abm.dev CNAME host.
 #   Verified via GET https://api.clerk.com/v1/domains (2026-04-19).
-# Dev/staging issuer: https://magical-stag-51.clerk.accounts.dev
+# Dev issuer: https://magical-stag-51.clerk.accounts.dev
 #
 # The public key below was fetched from Clerk prod JWKS endpoint
 # (kid: ins_36XBbvwAspqFqEPDfPQ85VOtySB) via the portal proxy route
