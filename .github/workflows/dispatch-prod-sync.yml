@@ -1,0 +1,81 @@
+name: Sync 1P secrets before prod deploy
+
+# Fires the secrets-sync workflow in abm-infrastructure BEFORE Railway picks
+# up the push and starts a new deploy. Waits for sync to complete so Railway's
+# auto-deploy reads the freshly-synced env vars.
+#
+# Why this exists: Railway's GitHub integration auto-deploys on push to the
+# `production` branch. Without this workflow, Railway would deploy with
+# whatever env vars are currently set -- which can lag behind 1Password if
+# someone rotated a key. Now: dispatch -> wait -> Railway picks up its push.
+#
+# Requires repo secret INFRA_DISPATCH_TOKEN (a PAT or fine-grained token with
+# `repo` scope on abm-dev-git/abm-infrastructure).
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-secrets-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.INFRA_DISPATCH_TOKEN }}
+      COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Fire repository_dispatch on abm-infrastructure
+        run: |
+          set -euo pipefail
+          # kong-gateway Railway service.
+          # Push triggers Railway auto-deploy on this service.
+          curl -sS -f -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/abm-dev-git/abm-infrastructure/dispatches \
+            -d "$(jq -nc --arg sha "$COMMIT_SHA" '{event_type:"app-deploy-production", client_payload:{services:"kong-gateway", source_repo:"kong-gateway", source_sha:$sha}}')"
+          echo "  fired dispatch for abm-platform"
+
+      - name: Wait for sync to complete
+        run: |
+          set -euo pipefail
+          # Poll for the most-recently-created repository_dispatch run on the
+          # sync workflow. Time out after 5 minutes.
+          deadline=$(( $(date +%s) + 300 ))
+          run_id=""
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            run_id=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/abm-dev-git/abm-infrastructure/actions/workflows/sync-production-secrets.yml/runs?event=repository_dispatch&per_page=1" \
+              | jq -r '.workflow_runs[0].id // empty')
+            [ -n "$run_id" ] && break
+            sleep 3
+          done
+          if [ -z "$run_id" ]; then
+            echo "::warning::could not find the sync run; Railway will deploy with whatever's on Railway"
+            exit 0
+          fi
+          echo "  watching sync run id=$run_id"
+
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            payload=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/abm-dev-git/abm-infrastructure/actions/runs/$run_id")
+            status=$(echo "$payload" | jq -r '.status')
+            conclusion=$(echo "$payload" | jq -r '.conclusion // ""')
+            echo "  sync $run_id: $status/$conclusion"
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "  sync OK"; exit 0
+              fi
+              echo "::error::sync finished with non-success: $conclusion"; exit 1
+            fi
+            sleep 10
+          done
+          echo "::warning::sync did not complete within 5 min"
