@@ -765,6 +765,22 @@ routes:
           replace:
             uri: /api/v1/billing/packages
 
+  - name: billing-topup-options
+    service: abmdev-public
+    paths:
+      - ~/v1/billing/topup-options$
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - billing
+      - public
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /api/v1/billing/topup-options
+
   - name: billing-credits
     service: abmdev-backend
     paths:
