@@ -1085,29 +1085,24 @@ plugins:
               end
             end
           end
-
-  # PostHog request logging (global) — every request through Kong is
-  # captured to PostHog as a `kong_api_request` event so we see who
-  # called what at the EDGE (catches pre-upstream errors, auth
-  # rejections, rate limits, and routes abm-api never sees).
-  #
-  # Implementation: post-function `log` phase fires a non-blocking
-  # HTTP POST to PostHog /capture/.  We use post-function (not http-log)
-  # because Kong OSS http-log can only send its fixed log shape;
-  # PostHog wants {api_key, event, distinct_id, properties}.
-  #
-  # `ngx.timer.at(0, ...)` makes the POST fire-and-forget so a slow or
-  # down PostHog doesn't slow client responses.  Failures swallowed.
-  #
-  # The phc_* key is the public PostHog project API key (same one the
-  # FE bundles), safe to ship in config.  No PII beyond what's already
-  # in the JWT/auth headers (org_id, sub, email).
-  - name: post-function
-    tags:
-      - analytics
-      - posthog
-      - logging
-    config:
+      # ── PostHog request logging (runs in the `log` phase, post-response) ──
+      #
+      # Captures every Kong request as a `kong_api_request` event in
+      # PostHog so we see who called what at the EDGE (catches pre-
+      # upstream errors, auth rejections, rate limits, and routes the
+      # upstream never sees).
+      #
+      # Lives inside this same post-function plugin because Kong dedupes
+      # plugins by deterministic UUID derived from plugin name+config —
+      # two standalone `post-function`s collide.  Splitting access vs log
+      # phases on one plugin avoids the conflict.
+      #
+      # `ngx.timer.at(0, ...)` makes the POST fire-and-forget so PostHog
+      # latency / outages never slow client responses.  Failures swallowed.
+      #
+      # The phc_* key is the public PostHog project API key (same as the
+      # FE bundles), safe to ship in config.  No PII beyond what's already
+      # in JWT/auth headers.
       log:
         - |
           local cjson = require("cjson.safe")
@@ -1157,7 +1152,6 @@ plugins:
             },
           })
 
-          -- Fire and forget — never block the client response.
           ngx.timer.at(0, function(premature)
             if premature then return end
             local httpc = http.new()
@@ -1169,7 +1163,6 @@ plugins:
               keepalive_timeout = 60000,
               keepalive_pool = 10,
             })
-            -- intentionally ignoring res / err — best-effort telemetry.
           end)
 
   # JWT Authentication Plugin (for authenticated service only)
