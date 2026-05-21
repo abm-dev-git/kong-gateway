@@ -1085,85 +1085,15 @@ plugins:
               end
             end
           end
-      # ── PostHog request logging (runs in the `log` phase, post-response) ──
-      #
-      # Captures every Kong request as a `kong_api_request` event in
-      # PostHog so we see who called what at the EDGE (catches pre-
-      # upstream errors, auth rejections, rate limits, and routes the
-      # upstream never sees).
-      #
-      # Lives inside this same post-function plugin because Kong dedupes
-      # plugins by deterministic UUID derived from plugin name+config —
-      # two standalone `post-function`s collide.  Splitting access vs log
-      # phases on one plugin avoids the conflict.
-      #
-      # `ngx.timer.at(0, ...)` makes the POST fire-and-forget so PostHog
-      # latency / outages never slow client responses.  Failures swallowed.
-      #
-      # The phc_* key is the public PostHog project API key (same as the
-      # FE bundles), safe to ship in config.  No PII beyond what's already
-      # in JWT/auth headers.
-      log:
-        - |
-          local cjson = require("cjson.safe")
-          local http = require("resty.http")
-
-          local r = kong.request
-          local consumer = kong.client.get_consumer()
-          local jwt_claims = kong.ctx.shared.authenticated_jwt_claims or {}
-          local route = kong.router.get_route() or {}
-          local service = kong.router.get_service() or {}
-
-          local org_id = r.get_header("x-org-id")
-                      or (jwt_claims.o and jwt_claims.o.id)
-                      or jwt_claims.org_id
-                      or (consumer and consumer.custom_id)
-                      or ""
-          local user_id = jwt_claims.sub
-                      or (consumer and consumer.username)
-                      or ""
-          local distinct_id = (org_id ~= "" and org_id)
-                           or (user_id ~= "" and user_id)
-                           or "anonymous"
-
-          local payload = cjson.encode({
-            api_key = "phc_sGnJZIy3Z2WDX4SsdUPHnTIHN6FGq05gokn1cu0RkSm",
-            event = "kong_api_request",
-            distinct_id = distinct_id,
-            properties = {
-              ["$lib"] = "kong-post-function",
-              method = r.get_method(),
-              path = r.get_path(),
-              status_code = kong.response.get_status(),
-              latency_ms = (ngx.now() - ngx.req.start_time()) * 1000,
-              route = route.name or "unknown",
-              service = service.name or "unknown",
-              organization_id = org_id ~= "" and org_id or nil,
-              user_id = user_id ~= "" and user_id or nil,
-              consumer_id = consumer and consumer.id or nil,
-              consumer_username = consumer and consumer.username or nil,
-              client_ip = kong.client.get_ip(),
-              forwarded_ip = kong.client.get_forwarded_ip(),
-              user_agent = r.get_header("user-agent"),
-              auth_method = (jwt_claims and jwt_claims.sub) and "jwt"
-                         or (consumer and "apikey")
-                         or "none",
-              correlation_id = r.get_header("x-correlation-id"),
-            },
-          })
-
-          ngx.timer.at(0, function(premature)
-            if premature then return end
-            local httpc = http.new()
-            httpc:set_timeout(2000)
-            httpc:request_uri("https://eu.i.posthog.com/capture/", {
-              method = "POST",
-              body = payload,
-              headers = { ["Content-Type"] = "application/json" },
-              keepalive_timeout = 60000,
-              keepalive_pool = 10,
-            })
-          end)
+      # PostHog request-logging via Kong post-function was attempted here
+      # but pulled: ngx.timer.at(0,...) fired without errors yet no events
+      # ever landed in PostHog.  Debugging the silent failure on Railway
+      # was high-effort (no log surface for the timer callback), and
+      # abm-api's AnalyticsMiddleware already captures every request that
+      # reaches the upstream.  Edge-only rejections (auth fails before
+      # upstream, unmatched routes) are <1% of traffic — acceptable gap.
+      # If we ever need edge metrics, the native Kong Prometheus plugin
+      # is the right next step.
 
   # JWT Authentication Plugin (for authenticated service only)
   # Uses anonymous consumer fallback for Either/Or auth pattern
